@@ -69,18 +69,13 @@ const pick = (doc: AnyDoc, keys: string[]): string | undefined => {
   return undefined
 }
 
-function buildUrl(doc: AnyDoc): string | null {
-  // Accept either a full URL or a path + domain, under several field names.
-  const direct = pick(doc, ['url', 'href', 'link'])
-  if (direct && /^https?:\/\//.test(direct) && direct.includes('cifraclub')) return direct
-
-  const path = pick(doc, ['u', 'url', 'uri', 'slug', 'path'])
-  if (!path) return null
-  const domain = pick(doc, ['d', 'domain']) || 'cifraclub.com.br'
-  if (!domain.includes('cifraclub')) return null // skip non-cifraclub docs
-  const p = path.startsWith('/') ? path : '/' + path
-  return `https://www.${domain.replace(/^www\./, '')}${p}`
-}
+/**
+ * Real CifraClub solr doc shape (confirmed from the live response):
+ *   { t:"2", m:"Something", a:"The Beatles", d:"the-beatles", u:"something" }
+ * where `t` is the TYPE ("2"=song, "1"=artist), `m` is the title, `a` the
+ * artist, and the URL is built from `d` (artist slug) + `u` (song slug).
+ */
+const prettify = (slug: string) => slug.replace(/[-_]+/g, ' ').trim()
 
 export const cifraclub: ChordSource = {
   id: 'cifraclub',
@@ -88,22 +83,24 @@ export const cifraclub: ChordSource = {
 
   async search(query: string): Promise<SongSummary[]> {
     const raw = await proxyFetch(SEARCH(query))
-    const data = parseJsonLoose(raw)
+    const data = parseJsonLoose(raw) as AnyDoc | null
     if (!data) return []
 
-    const docs = findDocsArray(data)
+    const docs =
+      ((data.response as AnyDoc)?.docs as AnyDoc[] | undefined) ?? findDocsArray(data)
     const out: SongSummary[] = []
     for (const doc of docs) {
-      const url = buildUrl(doc)
-      const title = pick(doc, ['t', 'title', 'name', 'song'])
-      if (!url || !title) continue
-      // Only song pages (artist-only entries have a single path segment).
-      if (url.replace(BASE, '').split('/').filter(Boolean).length < 2) continue
+      // Only song docs (t==="2"); t==="1" are artists with no song slug.
+      if (String(doc.t) !== '2') continue
+      const artistSlug = pick(doc, ['d'])
+      const songSlug = pick(doc, ['u'])
+      if (!artistSlug || !songSlug) continue
+      const url = `${BASE}/${artistSlug}/${songSlug}/`
       out.push({
         id: `cifraclub:${url}`,
         source: 'cifraclub',
-        title: decodeEntities(title),
-        artist: decodeEntities(pick(doc, ['a', 'artist', 'art', 'subtitle']) || ''),
+        title: decodeEntities(pick(doc, ['m', 'title']) || prettify(songSlug)),
+        artist: decodeEntities(pick(doc, ['a']) || prettify(artistSlug)),
         url,
         // CifraClub doesn't expose ratings; give a solid baseline score.
         score: 0.7,
