@@ -1,63 +1,135 @@
 /**
- * CORS proxy layer.
+ * Fetch layer. GitHub Pages is static, so the browser cannot fetch
+ * cifraclub.com.br / ultimate-guitar.com directly (no CORS headers, and some
+ * endpoints also require a specific Referer). We route through proxies:
  *
- * GitHub Pages is static hosting: the browser cannot fetch cifraclub.com.br /
- * ultimate-guitar.com directly because those sites don't send CORS headers.
- * We route requests through public CORS proxies that fetch the page
- * server-side and return it with permissive headers. We try several in order
- * so that if one is down or rate-limited, the next is used.
+ *  1. The user's own backend (a Cloudflare Worker), if configured — most
+ *     reliable, because it can set the right Referer/User-Agent. See worker/.
+ *  2. A list of public CORS proxies, tried in order, as a best-effort fallback.
  *
- * If you find these unreliable, the most robust fix is to deploy your own tiny
- * proxy (e.g. a Cloudflare Worker) and put its URL first in PROXIES.
+ * Every attempt is recorded in the in-app debug log so failures are visible.
  */
 
-type ProxyBuilder = (target: string) => string
+import { logDebug } from './debug'
+import { getBackendUrl } from './settings'
 
-const PROXIES: ProxyBuilder[] = [
-  (t) => `https://corsproxy.io/?url=${encodeURIComponent(t)}`,
-  (t) => `https://api.allorigins.win/raw?url=${encodeURIComponent(t)}`,
-  (t) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(t)}`,
-  (t) => `https://thingproxy.freeboard.io/fetch/${t}`,
+interface Proxy {
+  name: string
+  build: (target: string) => string
+  /** If the proxy wraps the body in JSON, extract the real body. */
+  unwrap?: (raw: string) => string
+}
+
+const PUBLIC_PROXIES: Proxy[] = [
+  {
+    name: 'allorigins/raw',
+    build: (t) => `https://api.allorigins.win/raw?url=${encodeURIComponent(t)}`,
+  },
+  {
+    name: 'codetabs',
+    build: (t) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(t)}`,
+  },
+  {
+    name: 'corsproxy.io',
+    build: (t) => `https://corsproxy.io/?url=${encodeURIComponent(t)}`,
+  },
+  {
+    name: 'allorigins/get',
+    build: (t) => `https://api.allorigins.win/get?url=${encodeURIComponent(t)}`,
+    unwrap: (raw) => {
+      try {
+        return JSON.parse(raw).contents ?? raw
+      } catch {
+        return raw
+      }
+    },
+  },
+  {
+    name: 'thingproxy',
+    build: (t) => `https://thingproxy.freeboard.io/fetch/${t}`,
+  },
 ]
 
-// Remember which proxy worked last so we hit it first next time.
-let preferred = 0
+const TIMEOUT_MS = 9000
+const MAX_PUBLIC_ATTEMPTS = 3 // fail fast instead of leaving the user spinning
+let preferred = 0 // index into the active public-proxy list
 
-const TIMEOUT_MS = 15000
+function backendProxy(): Proxy | null {
+  const url = getBackendUrl()
+  if (!url) return null
+  const sep = url.includes('?') ? '&' : '?'
+  return {
+    name: 'backend',
+    build: (t) => `${url}${sep}url=${encodeURIComponent(t)}`,
+  }
+}
 
-async function tryFetch(url: string): Promise<string> {
+async function tryFetch(proxyUrl: string): Promise<string> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(url, {
+    const res = await fetch(proxyUrl, {
       signal: ctrl.signal,
       headers: { Accept: 'text/html,application/json,*/*' },
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const text = await res.text()
-    if (!text || text.length < 32) throw new Error('empty response')
+    if (!text || text.length < 24) throw new Error(`respuesta vacía (${text.length}b)`)
     return text
   } finally {
     clearTimeout(timer)
   }
 }
 
-/** Fetch a remote URL's body as text, transparently going through a CORS proxy. */
+/** Fetch a remote URL's body as text, transparently going through a proxy. */
 export async function proxyFetch(target: string): Promise<string> {
-  const order = [preferred, ...PROXIES.keys()].filter(
-    (v, i, a) => a.indexOf(v) === i
-  )
+  const backend = backendProxy()
+  // Order: backend first (if any), then public proxies starting at `preferred`.
+  const order: Proxy[] = []
+  if (backend) order.push(backend)
+  const attempts = Math.min(MAX_PUBLIC_ATTEMPTS, PUBLIC_PROXIES.length)
+  for (let i = 0; i < attempts; i++) {
+    order.push(PUBLIC_PROXIES[(preferred + i) % PUBLIC_PROXIES.length])
+  }
+
   let lastErr: unknown
-  for (const idx of order) {
+  for (const proxy of order) {
+    const start = performance.now()
     try {
-      const text = await tryFetch(PROXIES[idx](target))
-      preferred = idx
-      return text
+      let body = await tryFetch(proxy.build(target))
+      if (proxy.unwrap) body = proxy.unwrap(body)
+      const ms = Math.round(performance.now() - start)
+      logDebug({
+        kind: 'fetch',
+        ok: true,
+        ms,
+        label: `${proxy.name} ✓`,
+        detail: `${body.length}b · ${shortUrl(target)}`,
+      })
+      if (proxy.name !== 'backend') {
+        preferred = PUBLIC_PROXIES.findIndex((p) => p.name === proxy.name)
+      }
+      return body
     } catch (err) {
+      const ms = Math.round(performance.now() - start)
       lastErr = err
+      logDebug({
+        kind: 'fetch',
+        ok: false,
+        ms,
+        label: `${proxy.name} ✗`,
+        detail: `${String((err as Error).message || err)} · ${shortUrl(target)}`,
+      })
     }
   }
-  throw new Error(
-    `No se pudo cargar la página (todos los proxies fallaron): ${String(lastErr)}`
-  )
+  throw new Error(`Todos los proxies fallaron (${String(lastErr)})`)
+}
+
+function shortUrl(u: string): string {
+  try {
+    const x = new URL(u)
+    return x.hostname + x.pathname.slice(0, 40)
+  } catch {
+    return u.slice(0, 50)
+  }
 }

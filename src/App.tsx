@@ -11,6 +11,7 @@ import {
 import { SearchBar } from './components/SearchBar'
 import { ResultsList } from './components/ResultsList'
 import { SongView } from './components/SongView'
+import { DebugPanel } from './components/DebugPanel'
 
 type Tab = 'search' | 'favorites'
 
@@ -26,6 +27,7 @@ export function App() {
 
   const [favorites, setFavorites] = useState<Favorite[]>([])
   const [recents, setRecents] = useState<SongSummary[]>([])
+  const [showDebug, setShowDebug] = useState(false)
 
   const refreshLists = () => {
     setFavorites(getFavorites())
@@ -99,7 +101,18 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <h1 className="brand">🎸 Acordes</h1>
+        <div className="topbar-row">
+          <h1 className="brand">🎸 Acordes</h1>
+          <button
+            className={`debug-btn ${showDebug ? 'on' : ''}`}
+            onClick={() => setShowDebug((v) => !v)}
+            type="button"
+            aria-label="Diagnóstico"
+            title="Diagnóstico"
+          >
+            🐞
+          </button>
+        </div>
         <nav className="tabs">
           <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>
             Buscar
@@ -109,6 +122,8 @@ export function App() {
           </button>
         </nav>
       </header>
+
+      {showDebug ? <DebugPanel onClose={() => setShowDebug(false)} /> : null}
 
       {loadingSong ? <div className="loading-bar">Cargando canción…</div> : null}
 

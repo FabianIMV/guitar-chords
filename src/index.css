@@ -48,7 +48,30 @@ a { color: var(--accent-2); }
   padding: calc(var(--safe-top) + 10px) 16px 10px;
   border-bottom: 1px solid var(--border);
 }
-.brand { margin: 0 0 10px; font-size: 22px; }
+.topbar-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.brand { margin: 0; font-size: 22px; }
+.debug-btn { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; width: 38px; height: 38px; font-size: 18px; opacity: 0.7; }
+.debug-btn.on { opacity: 1; border-color: var(--accent); }
+
+/* ---------- Debug / Settings panel ---------- */
+.debug { background: var(--bg-elev); border-bottom: 1px solid var(--border); padding: 12px 14px; max-width: 760px; margin: 0 auto; font-size: 13px; }
+.debug-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.debug-close { background: none; border: none; font-size: 16px; color: var(--muted); }
+.debug-field { display: block; margin-bottom: 12px; }
+.debug-field > span { display: block; color: var(--muted); margin-bottom: 6px; }
+.debug-field input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px; font-size: 16px; }
+.debug-field small { display: block; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.debug-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.debug-actions button { background: var(--bg-elev2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 6px 12px; font-size: 13px; }
+.debug-count { color: var(--muted); margin-left: auto; }
+.debug-log { max-height: 300px; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.debug-empty { color: var(--muted); margin: 4px; }
+.debug-row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.debug-time { color: var(--muted); flex-shrink: 0; }
+.debug-row.bad .debug-label { color: #ff9b9b; }
+.debug-row.good .debug-label { color: var(--good); }
+.debug-row.k-source .debug-label { font-weight: 700; }
+.debug-row em { color: var(--muted); font-style: normal; }
 
 .tabs { display: flex; gap: 8px; }
 .tabs button {
