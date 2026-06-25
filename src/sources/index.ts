@@ -2,6 +2,7 @@ import type { ChordSource, SongDetail, SongSummary } from './types'
 import { cifraclub } from './cifraclub'
 import { ultimateGuitar } from './ultimateGuitar'
 import { tusacordes } from './tusacordes'
+import { logDebug } from '../lib/debug'
 
 export const SOURCES: Record<string, ChordSource> = {
   'ultimate-guitar': ultimateGuitar,
@@ -19,11 +20,27 @@ export async function searchAll(query: string): Promise<SongSummary[]> {
   const q = query.trim()
   if (!q) return []
 
+  logDebug({ kind: 'info', label: `Buscando "${q}"…` })
   const settled = await Promise.allSettled(SEARCH_ORDER.map((s) => s.search(q)))
   const all: SongSummary[] = []
-  for (const r of settled) {
-    if (r.status === 'fulfilled') all.push(...r.value)
-  }
+  settled.forEach((r, i) => {
+    const src = SEARCH_ORDER[i]
+    if (r.status === 'fulfilled') {
+      all.push(...r.value)
+      logDebug({
+        kind: 'source',
+        ok: r.value.length > 0,
+        label: `${src.label}: ${r.value.length} resultados`,
+      })
+    } else {
+      logDebug({
+        kind: 'source',
+        ok: false,
+        label: `${src.label}: error`,
+        detail: String((r.reason as Error)?.message || r.reason),
+      })
+    }
+  })
 
   // Sort by score (desc), then by votes as a tie-breaker.
   all.sort((a, b) => b.score - a.score || (b.votes ?? 0) - (a.votes ?? 0))
