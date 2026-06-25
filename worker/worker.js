@@ -25,6 +25,12 @@ const ALLOWED = [
   'tabs.ultimate-guitar.com',
   'tusacordes.com',
   'www.tusacordes.com',
+  'lacuerda.net',
+  'www.lacuerda.net',
+  'acordes.lacuerda.net',
+  'chords.lacuerda.net',
+  'cifras.com.br',
+  'www.cifras.com.br',
 ]
 
 const BROWSER_UA =
@@ -43,6 +49,8 @@ function refererFor(host) {
     return 'https://www.cifraclub.com.br/'
   if (host.includes('ultimate-guitar')) return 'https://www.ultimate-guitar.com/'
   if (host.includes('tusacordes')) return 'https://www.tusacordes.com/'
+  if (host.includes('lacuerda')) return 'https://acordes.lacuerda.net/'
+  if (host.includes('cifras.com')) return 'https://www.cifras.com.br/'
   return undefined
 }
 

@@ -1,4 +1,9 @@
-export type SourceId = 'cifraclub' | 'ultimate-guitar' | 'tusacordes'
+export type SourceId =
+  | 'cifraclub'
+  | 'ultimate-guitar'
+  | 'tusacordes'
+  | 'lacuerda'
+  | 'cifras'
 
 /** A single token on a line: either a chord or plain (lyric/whitespace) text. */
 export interface Token {
