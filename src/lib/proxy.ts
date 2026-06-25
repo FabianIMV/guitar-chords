@@ -114,6 +114,7 @@ export async function proxyFetch(target: string): Promise<string> {
         ms,
         label: `${proxy.name} ✓`,
         detail: `${body.length}b · ${shortUrl(target)}`,
+        preview: body.replace(/\s+/g, ' ').slice(0, 280),
       })
       if (proxy.name !== 'backend') {
         preferred = PUBLIC_PROXIES.findIndex((p) => p.name === proxy.name)
