@@ -52,7 +52,7 @@ export const lacuerda: ChordSource = {
       })
       if (out.length >= 15) break
     }
-    if (out.length === 0) logSampleLinks('LaCuerda', doc)
+    if (out.length === 0) logSampleLinks('LaCuerda', doc, html)
     return out
   },
 
