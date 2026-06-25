@@ -2,15 +2,20 @@ import type { ChordSource, SongDetail, SongSummary } from './types'
 import { cifraclub } from './cifraclub'
 import { ultimateGuitar } from './ultimateGuitar'
 import { tusacordes } from './tusacordes'
+import { lacuerda } from './lacuerda'
+import { cifras } from './cifras'
 import { logDebug } from '../lib/debug'
 
 export const SOURCES: Record<string, ChordSource> = {
-  'ultimate-guitar': ultimateGuitar,
   cifraclub,
+  'ultimate-guitar': ultimateGuitar,
+  lacuerda,
+  cifras,
   tusacordes,
 }
 
-const SEARCH_ORDER: ChordSource[] = [ultimateGuitar, cifraclub, tusacordes]
+// CifraClub first (proven reliable); the rest broaden coverage.
+const SEARCH_ORDER: ChordSource[] = [cifraclub, ultimateGuitar, lacuerda, cifras, tusacordes]
 
 /**
  * Search every source in parallel and merge results, best-rated first.
@@ -61,6 +66,8 @@ export function summaryFromUrl(url: string): SongSummary | null {
     let source: SongSummary['source']
     if (host.includes('cifraclub')) source = 'cifraclub'
     else if (host.includes('ultimate-guitar')) source = 'ultimate-guitar'
+    else if (host.includes('lacuerda')) source = 'lacuerda'
+    else if (host.includes('cifras.com')) source = 'cifras'
     else if (host.includes('tusacordes')) source = 'tusacordes'
     else return null
     return {
