@@ -70,6 +70,7 @@ export function DebugPanel({ onClose }: Props) {
                   {e.label}
                   {e.ms != null ? ` · ${e.ms}ms` : ''}
                   {e.detail ? <em> — {e.detail}</em> : null}
+                  {e.preview ? <span className="debug-preview">{e.preview}</span> : null}
                 </span>
               </div>
             ))

@@ -31,7 +31,12 @@ export default defineConfig({
       workbox: {
         // Don't cache cross-origin scraping responses; only the app shell.
         navigateFallback: base + 'index.html',
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}']
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Apply new versions immediately so deploys aren't stuck behind an old
+        // cached service worker.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true
       }
     })
   ]

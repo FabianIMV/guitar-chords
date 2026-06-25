@@ -9,6 +9,8 @@ export interface DebugEntry {
   kind: 'fetch' | 'source' | 'info' | 'error'
   label: string
   detail?: string
+  /** First chunk of a successful response body, for diagnosing parsers. */
+  preview?: string
   ms?: number
   ok?: boolean
 }
@@ -46,7 +48,8 @@ export function formatDebug(): string {
     const t = new Date(e.ts).toLocaleTimeString()
     const ms = e.ms != null ? ` ${e.ms}ms` : ''
     const ok = e.ok == null ? '' : e.ok ? ' ✓' : ' ✗'
-    return `[${t}] ${e.kind.toUpperCase()}${ok}${ms} ${e.label}${e.detail ? ' — ' + e.detail : ''}`
+    const preview = e.preview ? `\n      ↳ ${e.preview}` : ''
+    return `[${t}] ${e.kind.toUpperCase()}${ok}${ms} ${e.label}${e.detail ? ' — ' + e.detail : ''}${preview}`
   })
   return lines.join('\n')
 }

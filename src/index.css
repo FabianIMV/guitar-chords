@@ -72,6 +72,7 @@ a { color: var(--accent-2); }
 .debug-row.good .debug-label { color: var(--good); }
 .debug-row.k-source .debug-label { font-weight: 700; }
 .debug-row em { color: var(--muted); font-style: normal; }
+.debug-preview { display: block; color: #8ab4ff; opacity: 0.85; margin-top: 2px; word-break: break-all; white-space: pre-wrap; }
 
 .tabs { display: flex; gap: 8px; }
 .tabs button {

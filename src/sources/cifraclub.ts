@@ -13,21 +13,73 @@ const BASE = 'https://www.cifraclub.com.br'
 const SEARCH = (q: string) =>
   `https://solr.sscdn.co/cc/h2/?type=&hl=true&q=${encodeURIComponent(q)}`
 
-interface SolrDoc {
-  t?: string // title
-  a?: string // artist
-  u?: string // url path
-  d?: string // domain
-  m?: string // mobile/type marker
-  dn?: number
+type AnyDoc = Record<string, unknown>
+
+/** Loosely parse JSON that may be wrapped in a JSONP callback or have junk. */
+function parseJsonLoose(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    /* try to unwrap */
+  }
+  const start = raw.search(/[{[]/)
+  const end = Math.max(raw.lastIndexOf('}'), raw.lastIndexOf(']'))
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(raw.slice(start, end + 1))
+    } catch {
+      /* give up */
+    }
+  }
+  return null
 }
 
-function buildUrl(doc: SolrDoc): string | null {
-  if (!doc.u) return null
-  const domain = doc.d || 'cifraclub.com.br'
+/** Find the most likely array of result docs anywhere in the parsed JSON. */
+function findDocsArray(data: unknown): AnyDoc[] {
+  // Common shapes first.
+  const d = data as AnyDoc
+  const known = [
+    (d?.response as AnyDoc)?.docs,
+    d?.docs,
+    d?.results,
+    Array.isArray(data) ? data : undefined,
+  ].find((x) => Array.isArray(x) && x.length) as AnyDoc[] | undefined
+  if (known) return known
+
+  // Otherwise, breadth-first search for an array of objects that look like docs.
+  const queue: unknown[] = [data]
+  while (queue.length) {
+    const cur = queue.shift()
+    if (Array.isArray(cur)) {
+      if (cur.length && typeof cur[0] === 'object' && cur[0]) return cur as AnyDoc[]
+      continue
+    }
+    if (cur && typeof cur === 'object') {
+      queue.push(...Object.values(cur as AnyDoc))
+    }
+  }
+  return []
+}
+
+const pick = (doc: AnyDoc, keys: string[]): string | undefined => {
+  for (const k of keys) {
+    const v = doc[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return undefined
+}
+
+function buildUrl(doc: AnyDoc): string | null {
+  // Accept either a full URL or a path + domain, under several field names.
+  const direct = pick(doc, ['url', 'href', 'link'])
+  if (direct && /^https?:\/\//.test(direct) && direct.includes('cifraclub')) return direct
+
+  const path = pick(doc, ['u', 'url', 'uri', 'slug', 'path'])
+  if (!path) return null
+  const domain = pick(doc, ['d', 'domain']) || 'cifraclub.com.br'
   if (!domain.includes('cifraclub')) return null // skip non-cifraclub docs
-  const path = doc.u.startsWith('/') ? doc.u : '/' + doc.u
-  return `https://www.${domain.replace(/^www\./, '')}${path}`
+  const p = path.startsWith('/') ? path : '/' + path
+  return `https://www.${domain.replace(/^www\./, '')}${p}`
 }
 
 export const cifraclub: ChordSource = {
@@ -36,26 +88,22 @@ export const cifraclub: ChordSource = {
 
   async search(query: string): Promise<SongSummary[]> {
     const raw = await proxyFetch(SEARCH(query))
-    let data: { response?: { docs?: SolrDoc[] } }
-    try {
-      // Endpoint sometimes wraps JSON in a JSONP callback — strip it.
-      const jsonText = raw.replace(/^[^{[]*/, '').replace(/\);?\s*$/, '')
-      data = JSON.parse(jsonText)
-    } catch {
-      return []
-    }
-    const docs = data.response?.docs ?? []
+    const data = parseJsonLoose(raw)
+    if (!data) return []
+
+    const docs = findDocsArray(data)
     const out: SongSummary[] = []
     for (const doc of docs) {
       const url = buildUrl(doc)
-      if (!url || !doc.t) continue
-      // Only song pages (skip artist-only entries which usually lack a song slug)
+      const title = pick(doc, ['t', 'title', 'name', 'song'])
+      if (!url || !title) continue
+      // Only song pages (artist-only entries have a single path segment).
       if (url.replace(BASE, '').split('/').filter(Boolean).length < 2) continue
       out.push({
         id: `cifraclub:${url}`,
         source: 'cifraclub',
-        title: decodeEntities(doc.t),
-        artist: decodeEntities(doc.a || ''),
+        title: decodeEntities(title),
+        artist: decodeEntities(pick(doc, ['a', 'artist', 'art', 'subtitle']) || ''),
         url,
         // CifraClub doesn't expose ratings; give a solid baseline score.
         score: 0.7,
