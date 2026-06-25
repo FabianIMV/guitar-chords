@@ -16,11 +16,20 @@ import { getBackendUrl } from './settings'
 interface Proxy {
   name: string
   build: (target: string) => string
+  /** Extra request headers (e.g. Jina's return-format hint). */
+  headers?: Record<string, string>
   /** If the proxy wraps the body in JSON, extract the real body. */
   unwrap?: (raw: string) => string
 }
 
 const PUBLIC_PROXIES: Proxy[] = [
+  {
+    // Jina Reader renders pages with a real browser, so it bypasses many
+    // blocks without any account. Ask for raw HTML so our parsers still work.
+    name: 'jina',
+    build: (t) => `https://r.jina.ai/${t}`,
+    headers: { 'X-Return-Format': 'html' },
+  },
   {
     name: 'allorigins/raw',
     build: (t) => `https://api.allorigins.win/raw?url=${encodeURIComponent(t)}`,
@@ -64,13 +73,13 @@ function backendProxy(): Proxy | null {
   }
 }
 
-async function tryFetch(proxyUrl: string): Promise<string> {
+async function tryFetch(proxyUrl: string, extra?: Record<string, string>): Promise<string> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
     const res = await fetch(proxyUrl, {
       signal: ctrl.signal,
-      headers: { Accept: 'text/html,application/json,*/*' },
+      headers: { Accept: 'text/html,application/json,*/*', ...extra },
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const text = await res.text()
@@ -96,7 +105,7 @@ export async function proxyFetch(target: string): Promise<string> {
   for (const proxy of order) {
     const start = performance.now()
     try {
-      let body = await tryFetch(proxy.build(target))
+      let body = await tryFetch(proxy.build(target), proxy.headers)
       if (proxy.unwrap) body = proxy.unwrap(body)
       const ms = Math.round(performance.now() - start)
       logDebug({
