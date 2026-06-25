@@ -1,6 +1,7 @@
 import { proxyFetch } from '../lib/proxy'
 import { decodeEntities, parseHTML } from '../lib/html'
 import { CH_END, CH_START, tokenizeMarked, tokenizePlainText } from '../lib/chords'
+import { logSampleLinks } from './diagnostics'
 import type { ChordSource, Line, SongDetail, SongSummary } from './types'
 
 /**
@@ -50,6 +51,7 @@ export const tusacordes: ChordSource = {
       })
       if (out.length >= 15) break
     }
+    if (out.length === 0) logSampleLinks('TusAcordes', doc, html)
     return out
   },
 

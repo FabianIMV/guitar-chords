@@ -52,7 +52,7 @@ export const cifras: ChordSource = {
       })
       if (out.length >= 15) break
     }
-    if (out.length === 0) logSampleLinks('CIFRAS', doc)
+    if (out.length === 0) logSampleLinks('CIFRAS', doc, html)
     return out
   },
 
