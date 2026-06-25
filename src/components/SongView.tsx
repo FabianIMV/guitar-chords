@@ -17,6 +17,7 @@ export function SongView({ song, onBack }: Props) {
   const [fontSize, setFontSize] = useState(15)
   const [showDiagrams, setShowDiagrams] = useState(true)
   const [fav, setFav] = useState(false)
+  const [popupChord, setPopupChord] = useState<string | null>(null)
   const { running, setRunning, speed, setSpeed } = useAutoScroll()
 
   useEffect(() => {
@@ -71,7 +72,18 @@ export function SongView({ song, onBack }: Props) {
         </div>
       ) : null}
 
-      <ChordSheet lines={lines} fontSize={fontSize} />
+      <ChordSheet lines={lines} fontSize={fontSize} onChordClick={setPopupChord} />
+
+      {popupChord ? (
+        <div className="chord-popup-backdrop" onClick={() => setPopupChord(null)}>
+          <div className="chord-popup" onClick={(e) => e.stopPropagation()}>
+            <ChordDiagram name={popupChord} />
+            <button className="chord-popup-close" onClick={() => setPopupChord(null)} type="button">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {!hasChords ? (
         <p className="empty">

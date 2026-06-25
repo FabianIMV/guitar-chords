@@ -186,6 +186,44 @@ a { color: var(--accent-2); }
 
 .empty { color: var(--muted); font-size: 14px; background: var(--bg-elev); padding: 14px; border-radius: 10px; }
 
+/* Chord popup (tap a chord in the sheet) */
+.chord-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fadein 0.12s ease;
+}
+.chord-popup {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.chord-popup .diagram { background: none; border: none; padding: 0; }
+.chord-popup .diagram-name { font-size: 22px; margin-bottom: 6px; }
+.chord-popup .diagram-svg { width: 200px; height: auto; }
+.chord-popup .diagram-missing { width: 160px; font-size: 14px; padding: 40px 0; }
+.chord-popup-close {
+  background: var(--accent);
+  color: #1a1206;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 22px;
+  font-size: 15px;
+  font-weight: 700;
+}
+@keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
+
 /* Sticky toolbar */
 .toolbar {
   position: fixed;
