@@ -6,6 +6,7 @@ import { lacuerda } from './lacuerda'
 import { cifras } from './cifras'
 import { logDebug } from '../lib/debug'
 
+// All adapters are registered so pasted URLs and re-enabling are trivial.
 export const SOURCES: Record<string, ChordSource> = {
   cifraclub,
   'ultimate-guitar': ultimateGuitar,
@@ -14,19 +15,41 @@ export const SOURCES: Record<string, ChordSource> = {
   tusacordes,
 }
 
-// CifraClub first (proven reliable); the rest broaden coverage.
-const SEARCH_ORDER: ChordSource[] = [cifraclub, ultimateGuitar, lacuerda, cifras, tusacordes]
+/**
+ * Sources actually queried on every search.
+ *
+ * Only CifraClub for now — it's reliable and has a huge catalogue (incl. lots
+ * of Spanish/Latin). The others are parked: Ultimate Guitar is behind a
+ * Cloudflare bot wall, and CIFRAS/LaCuerda load results from a private AJAX
+ * endpoint we still need to capture from a desktop browser. They stay in
+ * SOURCES (so pasted URLs work) and can be re-added here once calibrated.
+ */
+const SEARCH_ORDER: ChordSource[] = [cifraclub]
+
+/** Hard cap so one slow source can never hang the whole search. */
+const SEARCH_TIMEOUT_MS = 12000
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout ${ms}ms`)), ms)
+    ),
+  ])
+}
 
 /**
- * Search every source in parallel and merge results, best-rated first.
- * A failing source contributes nothing rather than breaking the search.
+ * Search every active source in parallel and merge results, best-rated first.
+ * A failing or slow source contributes nothing rather than breaking the search.
  */
 export async function searchAll(query: string): Promise<SongSummary[]> {
   const q = query.trim()
   if (!q) return []
 
   logDebug({ kind: 'info', label: `Buscando "${q}"…` })
-  const settled = await Promise.allSettled(SEARCH_ORDER.map((s) => s.search(q)))
+  const settled = await Promise.allSettled(
+    SEARCH_ORDER.map((s) => withTimeout(s.search(q), SEARCH_TIMEOUT_MS))
+  )
   const all: SongSummary[] = []
   settled.forEach((r, i) => {
     const src = SEARCH_ORDER[i]
