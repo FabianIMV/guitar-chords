@@ -132,7 +132,7 @@ export function App() {
           <SearchBar onSearch={handleSearch} loading={loading} />
           {error ? <p className="error">{error}</p> : null}
 
-          {loading ? <p className="hint">Buscando en CifraClub…</p> : null}
+          {loading ? <p className="hint">Buscando en CifraClub, LaCuerda y CIFRAS…</p> : null}
 
           {results.length > 0 ? (
             <ResultsList results={results} onPick={openSong} />

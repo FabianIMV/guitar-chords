@@ -1,58 +1,97 @@
 import { proxyFetch } from '../lib/proxy'
 import { decodeEntities, parseHTML } from '../lib/html'
 import { CH_END, CH_START, tokenizeMarked, tokenizePlainText } from '../lib/chords'
-import { logSampleLinks } from './diagnostics'
 import type { ChordSource, Line, SongDetail, SongSummary } from './types'
 
 /**
  * CIFRAS (cifras.com.br) adapter.
  *
- * Song pages live at /cifra/{artist}/{song}. Search is done by fetching the
- * site's HTML search results and collecting links that match that pattern.
- * The exact search URL may need calibration (see SEARCH candidates).
+ * Search uses the site's JSON API (/api/search) which needs the
+ * X-Requested-With header (added by the Worker). Song pages live at
+ * /cifra/{artist}/{song} and are parsed for their <pre> chord block.
  */
 
 const ORIGIN = 'https://www.cifras.com.br'
 
-// Best-effort search URL; adjust once confirmed from a real response.
-const SEARCH = (q: string) => `${ORIGIN}/busca?q=${encodeURIComponent(q)}`
+// Confirmed JSON search API. Requires the X-Requested-With header, which the
+// Worker adds. We only ask for songs.
+const SEARCH = (q: string) =>
+  `${ORIGIN}/api/search?q=${encodeURIComponent(q)}&only[]=songs&songs_take=15`
 
-const SONG_RE = /^\/cifra\/[^/]+\/[^/]+/
+type AnyObj = Record<string, unknown>
+
+function asArray(v: unknown): AnyObj[] {
+  return Array.isArray(v) ? (v as AnyObj[]) : []
+}
+
+/** Find the songs array in the API response, tolerating shape changes. */
+function findSongs(data: unknown): AnyObj[] {
+  const d = data as AnyObj
+  const direct =
+    asArray(d?.songs).length ? asArray(d?.songs)
+    : asArray((d?.data as AnyObj)?.songs).length ? asArray((d?.data as AnyObj)?.songs)
+    : asArray((d?.results as AnyObj)?.songs)
+  if (direct.length) return direct
+  // Fallback: first array of objects that have a url/slug-ish field.
+  const queue: unknown[] = [data]
+  while (queue.length) {
+    const cur = queue.shift()
+    if (Array.isArray(cur)) {
+      if (cur.length && typeof cur[0] === 'object') return cur as AnyObj[]
+    } else if (cur && typeof cur === 'object') {
+      queue.push(...Object.values(cur as AnyObj))
+    }
+  }
+  return []
+}
+
+const str = (o: AnyObj, keys: string[]): string | undefined => {
+  for (const k of keys) {
+    const v = o[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return undefined
+}
 
 export const cifras: ChordSource = {
   id: 'cifras',
   label: 'CIFRAS',
 
   async search(query: string): Promise<SongSummary[]> {
-    const html = await proxyFetch(SEARCH(query))
-    const doc = parseHTML(html)
+    const raw = await proxyFetch(SEARCH(query))
+    let data: unknown
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      return []
+    }
+
     const out: SongSummary[] = []
     const seen = new Set<string>()
-
-    for (const a of Array.from(doc.querySelectorAll('a[href]'))) {
-      const href = a.getAttribute('href') || ''
-      const path = href.replace(ORIGIN, '')
-      if (!SONG_RE.test(path)) continue
-      const url = href.startsWith('http') ? href : ORIGIN + path
+    for (const song of findSongs(data)) {
+      // URL: explicit field, else build /cifra/{artist}/{song} from slugs.
+      const artistObj = (song.artist as AnyObj) || {}
+      let path = str(song, ['url', 'path', 'link']) || str(artistObj, ['song_url'])
+      const songSlug = str(song, ['slug', 'permalink'])
+      const artistSlug = str(artistObj, ['slug', 'permalink']) || str(song, ['artist_slug'])
+      if (!path && artistSlug && songSlug) path = `/cifra/${artistSlug}/${songSlug}`
+      if (!path) continue
+      const url = path.startsWith('http') ? path : ORIGIN + (path.startsWith('/') ? path : '/' + path)
       if (seen.has(url)) continue
-      const text = (a.textContent || '').trim()
-      if (!text || text.length < 2) continue
       seen.add(url)
 
-      // Title from the link text; artist from the URL slug when possible.
-      const artistSlug = path.split('/')[2] || ''
-      const parts = text.split(/\s+[-–—]\s+/)
       out.push({
         id: `cifras:${url}`,
         source: 'cifras',
-        title: decodeEntities(parts.length > 1 ? parts.slice(1).join(' - ') : text),
-        artist: decodeEntities(parts.length > 1 ? parts[0] : artistSlug.replace(/[-_]+/g, ' ')),
+        title: decodeEntities(str(song, ['name', 'title', 'song']) || ''),
+        artist: decodeEntities(
+          str(artistObj, ['name', 'title']) || str(song, ['artist_name', 'artist']) || ''
+        ),
         url,
         score: 0.55,
       })
       if (out.length >= 15) break
     }
-    if (out.length === 0) logSampleLinks('CIFRAS', doc, html)
     return out
   },
 
