@@ -27,12 +27,17 @@ function asArray(v: unknown): AnyObj[] {
 /** Find the songs array in the API response, tolerating shape changes. */
 function findSongs(data: unknown): AnyObj[] {
   const d = data as AnyObj
-  const direct =
-    asArray(d?.songs).length ? asArray(d?.songs)
-    : asArray((d?.data as AnyObj)?.songs).length ? asArray((d?.data as AnyObj)?.songs)
-    : asArray((d?.results as AnyObj)?.songs)
-  if (direct.length) return direct
-  // Fallback: first array of objects that have a url/slug-ish field.
+  // Real shape: { songs: { hits: [ ... ] } }
+  const songs = d?.songs as AnyObj
+  const candidates = [
+    asArray(songs?.hits),
+    asArray(songs),
+    asArray((d?.data as AnyObj)?.songs),
+    asArray((d?.results as AnyObj)?.songs),
+  ]
+  const direct = candidates.find((a) => a.length)
+  if (direct) return direct
+  // Fallback: first array of objects anywhere in the response.
   const queue: unknown[] = [data]
   while (queue.length) {
     const cur = queue.shift()
@@ -69,11 +74,11 @@ export const cifras: ChordSource = {
     const out: SongSummary[] = []
     const seen = new Set<string>()
     for (const song of findSongs(data)) {
-      // URL: explicit field, else build /cifra/{artist}/{song} from slugs.
-      const artistObj = (song.artist as AnyObj) || {}
-      let path = str(song, ['url', 'path', 'link']) || str(artistObj, ['song_url'])
-      const songSlug = str(song, ['slug', 'permalink'])
-      const artistSlug = str(artistObj, ['slug', 'permalink']) || str(song, ['artist_slug'])
+      // Real CIFRAS fields are uppercase: TITULO, ARTISTA, COD_TITULO,
+      // COD_ARTISTA. Song pages live at /cifra/{artist}/{song}.
+      const songSlug = str(song, ['COD_TITULO', 'slug', 'permalink'])
+      const artistSlug = str(song, ['COD_ARTISTA', 'artist_slug'])
+      let path = str(song, ['url', 'path', 'link'])
       if (!path && artistSlug && songSlug) path = `/cifra/${artistSlug}/${songSlug}`
       if (!path) continue
       const url = path.startsWith('http') ? path : ORIGIN + (path.startsWith('/') ? path : '/' + path)
@@ -83,10 +88,8 @@ export const cifras: ChordSource = {
       out.push({
         id: `cifras:${url}`,
         source: 'cifras',
-        title: decodeEntities(str(song, ['name', 'title', 'song']) || ''),
-        artist: decodeEntities(
-          str(artistObj, ['name', 'title']) || str(song, ['artist_name', 'artist']) || ''
-        ),
+        title: decodeEntities(str(song, ['TITULO', 'name', 'title', 'song']) || ''),
+        artist: decodeEntities(str(song, ['ARTISTA', 'artist_name', 'artist']) || ''),
         url,
         score: 0.55,
       })
