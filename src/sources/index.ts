@@ -18,12 +18,12 @@ export const SOURCES: Record<string, ChordSource> = {
 /**
  * Sources actually queried on every search.
  *
- * CifraClub (huge catalogue), plus LaCuerda (busca.php HTML) and CIFRAS
- * (/api/search JSON) once their real endpoints were captured. Ultimate Guitar
- * stays parked — it's behind a Cloudflare bot wall. TusAcordes is parked too
- * (flaky/unconfirmed parser) but kept in SOURCES for pasted URLs.
+ * CifraClub (huge catalogue) + CIFRAS (/api/search JSON). Parked sources,
+ * kept in SOURCES so pasted URLs still work: Ultimate Guitar (Cloudflare bot
+ * wall), LaCuerda (results are javascript: links / JS-driven), TusAcordes
+ * (flaky / unconfirmed parser).
  */
-const SEARCH_ORDER: ChordSource[] = [cifraclub, lacuerda, cifras]
+const SEARCH_ORDER: ChordSource[] = [cifraclub, cifras]
 
 /** Hard cap so one slow source can never hang the whole search. */
 const SEARCH_TIMEOUT_MS = 12000
