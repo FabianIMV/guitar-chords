@@ -5,6 +5,7 @@ import { isFavorite, toggleFavorite } from '../lib/storage'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { ChordSheet } from './ChordSheet'
 import { ChordDiagram } from './ChordDiagram'
+import { YouTubePlayer } from './YouTubePlayer'
 import { SOURCES } from '../sources'
 
 interface Props {
@@ -63,6 +64,8 @@ export function SongView({ song, onBack }: Props) {
           {SOURCES[song.source]?.label} ↗
         </a>
       </div>
+
+      <YouTubePlayer title={song.title} artist={song.artist} />
 
       {showDiagrams && hasChords ? (
         <div className="diagrams">

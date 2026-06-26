@@ -31,6 +31,10 @@ const ALLOWED = [
   'chords.lacuerda.net',
   'cifras.com.br',
   'www.cifras.com.br',
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
 ]
 
 const BROWSER_UA =
@@ -51,6 +55,7 @@ function refererFor(host) {
   if (host.includes('tusacordes')) return 'https://www.tusacordes.com/'
   if (host.includes('lacuerda')) return 'https://acordes.lacuerda.net/'
   if (host.includes('cifras.com')) return 'https://www.cifras.com.br/'
+  if (host.includes('youtube')) return 'https://www.youtube.com/'
   return undefined
 }
 
