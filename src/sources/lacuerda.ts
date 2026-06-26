@@ -15,9 +15,11 @@ import type { ChordSource, Line, SongDetail, SongSummary } from './types'
 
 const ORIGIN = 'https://acordes.lacuerda.net'
 
-// Best-effort search URL; adjust once confirmed from a real response.
-const SEARCH = (q: string) => `${ORIGIN}/tabs/?b=${encodeURIComponent(q)}`
+// Confirmed search endpoint: returns a server-rendered HTML results page.
+const SEARCH = (q: string) =>
+  `${ORIGIN}/busca.php?canc=0&exp=${encodeURIComponent(q).replace(/%20/g, '+')}`
 
+// Song pages look like /{artist}/{song}.shtml
 const SONG_RE = /^\/[^/]+\/[^/]+\.shtml/
 
 export const lacuerda: ChordSource = {

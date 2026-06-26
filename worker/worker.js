@@ -84,6 +84,8 @@ export default {
       'User-Agent': BROWSER_UA,
       Accept: 'text/html,application/json,application/xhtml+xml,*/*',
       'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8,pt;q=0.7',
+      // Some sites (e.g. CIFRAS' /api/search) only answer to XHR-style requests.
+      'X-Requested-With': 'XMLHttpRequest',
     }
     const ref = refererFor(t.hostname)
     if (ref) headers.Referer = ref
