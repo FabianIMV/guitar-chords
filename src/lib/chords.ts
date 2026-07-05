@@ -45,7 +45,7 @@ export function transposeLines(lines: Line[], steps: number): Line[] {
  * something as a chord but we want to be safe, and for parsing plain text.
  */
 const CHORD_RE =
-  /^[A-G][#b]?(maj|min|m|sus|add|dim|aug|°|ø)?\d{0,2}(\([^)]*\))?(sus\d|add\d|maj\d|m\d|dim\d|aug)?(\/[A-G][#b]?)?$/
+  /^[A-G][#b]?(maj|min|m|sus|add|dim|aug|M|º|°|ø)?\d{0,2}(\([^)]*\))?(sus\d|add\d|maj\d|M\d?|m\d|dim\d?|aug|[+-]\d?)?(\/[A-G][#b]?)?$/
 
 export function looksLikeChord(text: string): boolean {
   const t = text.trim()

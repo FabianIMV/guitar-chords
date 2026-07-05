@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SongDetail } from '../sources/types'
-import { transposeLines, uniqueChords } from '../lib/chords'
-import { isFavorite, toggleFavorite } from '../lib/storage'
+import { transposeChord, transposeLines, uniqueChords } from '../lib/chords'
+import {
+  getFontSize,
+  getTranspose,
+  isFavorite,
+  setFontSize as saveFontSize,
+  setTranspose as saveTranspose,
+  toggleFavorite,
+} from '../lib/storage'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { ChordSheet } from './ChordSheet'
 import { ChordDiagram } from './ChordDiagram'
+import { YouTubePlayer } from './YouTubePlayer'
 import { SOURCES } from '../sources'
 
 interface Props {
@@ -14,7 +22,7 @@ interface Props {
 
 export function SongView({ song, onBack }: Props) {
   const [steps, setSteps] = useState(0)
-  const [fontSize, setFontSize] = useState(15)
+  const [fontSize, setFontSize] = useState(() => getFontSize())
   const [showDiagrams, setShowDiagrams] = useState(true)
   const [fav, setFav] = useState(false)
   const [popupChord, setPopupChord] = useState<string | null>(null)
@@ -22,9 +30,27 @@ export function SongView({ song, onBack }: Props) {
 
   useEffect(() => {
     setFav(isFavorite(song.id))
-    setSteps(0)
+    setSteps(getTranspose(song.id)) // reopen in "your" key
     window.scrollTo(0, 0)
   }, [song.id])
+
+  // Persist reading preferences.
+  useEffect(() => saveTranspose(song.id, steps), [song.id, steps])
+  useEffect(() => saveFontSize(fontSize), [fontSize])
+
+  async function share() {
+    const data = {
+      title: `${song.title} — ${song.artist}`,
+      text: `Acordes de ${song.title} (${song.artist})`,
+      url: song.url,
+    }
+    try {
+      if (navigator.share) await navigator.share(data)
+      else await navigator.clipboard.writeText(song.url)
+    } catch {
+      /* user cancelled the share sheet */
+    }
+  }
 
   const lines = useMemo(() => transposeLines(song.lines, steps), [song.lines, steps])
   const chords = useMemo(() => uniqueChords(lines), [lines])
@@ -40,6 +66,9 @@ export function SongView({ song, onBack }: Props) {
           <h1>{song.title}</h1>
           {song.artist ? <p>{song.artist}</p> : null}
         </div>
+        <button className="share" onClick={share} type="button" aria-label="Compartir">
+          ⇪
+        </button>
         <button
           className={`fav ${fav ? 'on' : ''}`}
           onClick={() => setFav(toggleFavorite({ ...song, lines: song.lines }))}
@@ -51,7 +80,12 @@ export function SongView({ song, onBack }: Props) {
       </div>
 
       <div className="song-tags">
-        {song.key ? <span className="tag">Tono: {song.key}</span> : null}
+        {song.key ? (
+          <span className="tag">
+            Tono: {song.key}
+            {steps !== 0 ? ` → ${transposeChord(song.key, steps)}` : ''}
+          </span>
+        ) : null}
         {song.capo ? <span className="tag">Cejilla: {song.capo}</span> : null}
         {song.tuning ? <span className="tag">Afinación: {song.tuning}</span> : null}
         {steps !== 0 ? (
@@ -63,6 +97,8 @@ export function SongView({ song, onBack }: Props) {
           {SOURCES[song.source]?.label} ↗
         </a>
       </div>
+
+      <YouTubePlayer title={song.title} artist={song.artist} />
 
       {showDiagrams && hasChords ? (
         <div className="diagrams">

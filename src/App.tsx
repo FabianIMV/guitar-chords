@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { SongDetail, SongSummary } from './sources/types'
 import { fetchSong, searchAll, summaryFromUrl } from './sources'
 import {
+  cacheSong,
+  getCachedSong,
   getFavorites,
   getRecents,
   pushRecent,
@@ -68,14 +70,24 @@ export function App() {
     setError(null)
     try {
       const detail = await fetchSong(summary)
+      cacheSong(detail) // instant/offline reopen from Recientes
       setSong(detail)
       pushRecent({ ...summary, title: detail.title, artist: detail.artist })
       refreshLists()
       window.scrollTo(0, 0)
     } catch (e) {
-      setError(
-        `No se pudo cargar la canción (${String(e)}). Intenta otra versión o ábrela en el sitio original.`
-      )
+      // Offline or the site failed: fall back to the cached copy if we have one.
+      const cached = getCachedSong(summary.id)
+      if (cached) {
+        setSong(cached)
+        pushRecent({ ...summary, title: cached.title, artist: cached.artist })
+        refreshLists()
+        window.scrollTo(0, 0)
+      } else {
+        setError(
+          `No se pudo cargar la canción (${String(e)}). Intenta otra versión o ábrela en el sitio original.`
+        )
+      }
     } finally {
       setLoadingSong(false)
     }
@@ -132,7 +144,7 @@ export function App() {
           <SearchBar onSearch={handleSearch} loading={loading} />
           {error ? <p className="error">{error}</p> : null}
 
-          {loading ? <p className="hint">Buscando en CifraClub, LaCuerda y CIFRAS…</p> : null}
+          {loading ? <p className="hint">Buscando en CifraClub y CIFRAS…</p> : null}
 
           {results.length > 0 ? (
             <ResultsList results={results} onPick={openSong} />

@@ -10,6 +10,13 @@ interface Props {
  * Renders the chord sheet in a monospace block so chord/lyric alignment from
  * the source is preserved. Chord tokens are highlighted and tappable.
  */
+/** Section markers like "[Intro]" or "[Coro]" get highlighted. */
+function isSectionLine(tokens: { text: string; chord: boolean }[]): boolean {
+  if (tokens.some((t) => t.chord)) return false
+  const text = tokens.map((t) => t.text).join('').trim()
+  return /^\[[^\]]{1,40}\]$/.test(text)
+}
+
 export function ChordSheet({ lines, fontSize, onChordClick }: Props) {
   return (
     <div
@@ -17,7 +24,10 @@ export function ChordSheet({ lines, fontSize, onChordClick }: Props) {
       style={{ fontSize: `${fontSize}px`, lineHeight: 1.5 }}
     >
       {lines.map((line, i) => (
-        <div className="sheet-line" key={i}>
+        <div
+          className={`sheet-line${isSectionLine(line.tokens) ? ' section' : ''}`}
+          key={i}
+        >
           {line.tokens.length === 0 ? (
             ' '
           ) : (
