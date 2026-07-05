@@ -11,19 +11,24 @@ una app nativa.
 
 ## Funciones
 
-- 🔎 **Búsqueda unificada** en varios sitios a la vez; resultados ordenados por
-  calificación (la mejor versión aparece marcada como **Mejor**).
-- 📜 **Letra + acordes alineados** en monoespaciado (ves *cuándo* tocar cada
-  acorde sobre cada palabra).
-- 🎸 **Diagramas de acordes** (digitación en el mástil) de cada acorde de la
-  canción — ves *cómo* tocarlos.
-- 🎚️ **Transposición** de tono (± semitonos) en tiempo real.
-- 🔤 **Tamaño de letra** ajustable.
+- 🔎 **Búsqueda unificada** (CifraClub + CIFRAS) con resultados ordenados; la
+  mejor versión aparece marcada como **Mejor**.
+- 📜 **Letra + acordes alineados** en monoespaciado, con secciones
+  (`[Intro]`, `[Coro]`…) resaltadas.
+- 🎸 **Diagramas de acordes** de toda la canción, y **popup al tocar un
+  acorde** en la letra. Soporta notación brasileña/española (`C7M`, `Bº`,
+  `Am7(5-)`, `D4`, `A2`), cejillas comunes y acordes con bajo (`D/F#`).
+- 🎚️ **Transposición** por semitonos (muestra `Tono: C → D`) — **se recuerda
+  por canción**.
+- 🔤 **Tamaño de letra** ajustable y recordado.
 - ▶️ **Auto-scroll** manos libres con velocidad regulable.
-- ♥ **Favoritos** guardados en el dispositivo y disponibles **sin conexión**.
-- 🕑 **Recientes** para volver rápido a lo último que viste.
-- 🔗 Pega la **URL** de una canción de CifraClub / Ultimate Guitar para abrirla
-  directo.
+- 🎵 **Reproductor de YouTube** integrado (▶ Escuchar) + enlaces a YouTube
+  Music / YouTube.
+- ♥ **Favoritos** offline y 🕑 **recientes con caché**: lo último que abriste
+  vuelve a abrir al instante, incluso **sin conexión**.
+- 📤 **Compartir** con la hoja nativa de iOS.
+- 🐞 **Panel de diagnóstico** con log de red copiable.
+- 🔗 Pega la **URL** de una canción (CifraClub, CIFRAS…) para abrirla directo.
 
 ## Cómo funciona (y la nota importante sobre el scraping)
 
