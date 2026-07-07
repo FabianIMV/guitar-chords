@@ -5,6 +5,8 @@ import {
   getFontSize,
   getTranspose,
   isFavorite,
+  SCROLL_SPEED_MAX,
+  SCROLL_SPEED_MIN,
   setFontSize as saveFontSize,
   setTranspose as saveTranspose,
   toggleFavorite,
@@ -55,6 +57,12 @@ export function SongView({ song, onBack }: Props) {
   const lines = useMemo(() => transposeLines(song.lines, steps), [song.lines, steps])
   const chords = useMemo(() => uniqueChords(lines), [lines])
   const hasChords = chords.length > 0
+
+  // Approximate reading speed as "lines per minute" — a more intuitive,
+  // tempo-like number than a bare 1..10 slider value.
+  const pxPerSec = speed * 14
+  const lineHeightPx = fontSize * 1.5
+  const linesPerMin = Math.max(1, Math.round((pxPerSec * 60) / lineHeightPx))
 
   return (
     <div className="songview">
@@ -130,38 +138,49 @@ export function SongView({ song, onBack }: Props) {
 
       {/* Sticky control bar */}
       <div className="toolbar">
-        <div className="tool-group" aria-label="Transponer">
-          <button onClick={() => setSteps((s) => s - 1)} type="button">♭</button>
-          <span className="tool-val">{steps > 0 ? `+${steps}` : steps}</span>
-          <button onClick={() => setSteps((s) => s + 1)} type="button">♯</button>
-        </div>
-        <div className="tool-group" aria-label="Tamaño de letra">
-          <button onClick={() => setFontSize((f) => Math.max(11, f - 1))} type="button">A−</button>
-          <button onClick={() => setFontSize((f) => Math.min(26, f + 1))} type="button">A+</button>
-        </div>
-        <button
-          className={`tool-toggle ${showDiagrams ? 'on' : ''}`}
-          onClick={() => setShowDiagrams((v) => !v)}
-          type="button"
-        >
-          🎸
-        </button>
-        <div className="tool-group" aria-label="Auto-scroll">
+        <div className="toolbar-row">
+          <div className="tool-group" aria-label="Transponer">
+            <button onClick={() => setSteps((s) => s - 1)} type="button">♭</button>
+            <span className="tool-val">{steps > 0 ? `+${steps}` : steps}</span>
+            <button onClick={() => setSteps((s) => s + 1)} type="button">♯</button>
+          </div>
+          <div className="tool-group" aria-label="Tamaño de letra">
+            <button onClick={() => setFontSize((f) => Math.max(11, f - 1))} type="button">A−</button>
+            <button onClick={() => setFontSize((f) => Math.min(26, f + 1))} type="button">A+</button>
+          </div>
           <button
-            className={running ? 'playing' : ''}
+            className={`tool-toggle ${showDiagrams ? 'on' : ''}`}
+            onClick={() => setShowDiagrams((v) => !v)}
+            type="button"
+          >
+            🎸
+          </button>
+          <button
+            className={`tool-toggle ${running ? 'on' : ''}`}
             onClick={() => setRunning((r) => !r)}
             type="button"
+            aria-label={running ? 'Pausar auto-scroll' : 'Iniciar auto-scroll'}
           >
             {running ? '⏸' : '▶'}
           </button>
+        </div>
+
+        <div className="toolbar-row speed-row" aria-label="Velocidad de auto-scroll">
+          <span className="speed-label">🐢</span>
           <input
+            className="speed-slider"
             type="range"
-            min={1}
-            max={10}
+            min={SCROLL_SPEED_MIN}
+            max={SCROLL_SPEED_MAX}
+            step={0.1}
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}
-            aria-label="Velocidad"
+            aria-label="Velocidad de auto-scroll"
           />
+          <span className="speed-label">🐇</span>
+          <span className="speed-readout">
+            <strong>{linesPerMin}</strong> líneas/min
+          </span>
         </div>
       </div>
     </div>

@@ -5,6 +5,11 @@ const RECENT_KEY = 'gc.recents.v1'
 const CACHE_KEY = 'gc.songCache.v1'
 const FONT_KEY = 'gc.fontSize.v1'
 const TRANSPOSE_KEY = 'gc.transpose.v1'
+const SCROLL_SPEED_KEY = 'gc.scrollSpeed.v1'
+
+export const SCROLL_SPEED_MIN = 0.3
+export const SCROLL_SPEED_MAX = 10
+const SCROLL_SPEED_DEFAULT = 3
 
 /** A favorite stores the full parsed sheet so it works offline. */
 export interface Favorite extends SongDetail {
@@ -112,4 +117,16 @@ export function setTranspose(id: string, steps: number): void {
   if (steps === 0) delete map[id]
   else map[id] = steps
   write(TRANSPOSE_KEY, map)
+}
+
+/** Auto-scroll speed, remembered across songs and app restarts. */
+export function getScrollSpeed(): number {
+  const n = Number(read<number | string>(SCROLL_SPEED_KEY, SCROLL_SPEED_DEFAULT))
+  return Number.isFinite(n) && n >= SCROLL_SPEED_MIN && n <= SCROLL_SPEED_MAX
+    ? n
+    : SCROLL_SPEED_DEFAULT
+}
+
+export function setScrollSpeed(speed: number): void {
+  write(SCROLL_SPEED_KEY, speed)
 }

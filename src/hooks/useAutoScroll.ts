@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
+import { getScrollSpeed, setScrollSpeed } from '../lib/storage'
 
 /**
  * Smooth hands-free auto-scroll for reading a chord sheet while playing.
- * Speed is 1..10; uses requestAnimationFrame for a steady pixel rate.
+ * Speed is a multiplier (see storage.SCROLL_SPEED_MIN/MAX); uses
+ * requestAnimationFrame for a steady pixel rate. The chosen speed is
+ * remembered across songs and app restarts.
  */
 export function useAutoScroll() {
   const [running, setRunning] = useState(false)
-  const [speed, setSpeed] = useState(3)
+  const [speed, setSpeedState] = useState(() => getScrollSpeed())
   const speedRef = useRef(speed)
   speedRef.current = speed
+
+  function setSpeed(next: number | ((prev: number) => number)) {
+    setSpeedState((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next
+      setScrollSpeed(value)
+      return value
+    })
+  }
 
   useEffect(() => {
     if (!running) return

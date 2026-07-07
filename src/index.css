@@ -261,8 +261,7 @@ a { color: var(--accent-2); }
   left: 0; right: 0;
   bottom: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 8px;
   padding: 8px 12px calc(8px + var(--safe-bottom));
   background: rgba(23, 26, 33, 0.96);
@@ -270,12 +269,53 @@ a { color: var(--accent-2); }
   border-top: 1px solid var(--border);
   z-index: 30;
 }
+.toolbar-row { display: flex; align-items: center; gap: 8px; }
+.toolbar-row:not(.speed-row) { justify-content: center; flex-wrap: wrap; }
 .tool-group { display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
 .tool-group button { background: none; border: none; font-size: 16px; padding: 4px 8px; border-radius: 6px; min-width: 32px; }
-.tool-group button.playing { color: var(--accent); }
 .tool-val { font-size: 13px; min-width: 26px; text-align: center; color: var(--accent-2); }
 .tool-toggle { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; font-size: 16px; padding: 8px 10px; opacity: 0.55; }
-.tool-toggle.on { opacity: 1; border-color: var(--accent); }
-.toolbar input[type='range'] { width: 70px; accent-color: var(--accent); }
+.tool-toggle.on { opacity: 1; border-color: var(--accent); color: var(--accent); }
+
+/* Speed row: full-width slider + tempo-like readout */
+.speed-row { width: 100%; }
+.speed-label { font-size: 15px; flex-shrink: 0; opacity: 0.8; }
+.speed-readout {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 80px;
+  text-align: right;
+}
+.speed-readout strong { font-size: 15px; color: var(--accent-2); }
+.speed-slider {
+  flex: 1;
+  min-width: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  outline: none;
+}
+.speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--bg-elev);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.speed-slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--bg-elev);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.speed-slider::-moz-range-track { height: 6px; border-radius: 999px; background: var(--border); }
 
 .loading-bar { background: var(--accent); color: #1a1206; text-align: center; font-size: 13px; font-weight: 600; padding: 6px; }
