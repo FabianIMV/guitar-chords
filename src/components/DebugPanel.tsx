@@ -1,61 +1,68 @@
 import { useEffect, useState } from 'react'
 import { clearDebug, formatDebug, getDebug, subscribeDebug } from '../lib/debug'
-import { getBackendUrl, setBackendUrl } from '../lib/settings'
+import { getRouteHealth, resetRouteHealth } from '../lib/proxy'
+import { toast } from './Toast'
 
-interface Props {
-  onClose: () => void
-}
-
-export function DebugPanel({ onClose }: Props) {
+/** Network log + what the fetch layer learned per host. */
+export function DebugPanel() {
   const [, force] = useState(0)
-  const [backend, setBackend] = useState(getBackendUrl())
-  const [copied, setCopied] = useState(false)
-
   useEffect(() => subscribeDebug(() => force((n) => n + 1)), [])
-
   const entries = getDebug()
+  const health = getRouteHealth()
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(formatDebug())
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      toast('Registro copiado')
     } catch {
-      /* clipboard may be blocked; the textarea below is selectable */
+      toast('No se pudo copiar')
     }
   }
 
   return (
     <div className="debug">
-      <div className="debug-head">
-        <strong>Diagnóstico</strong>
-        <button className="debug-close" onClick={onClose} type="button">✕</button>
-      </div>
-
-      <label className="debug-field">
-        <span>Backend propio (Cloudflare Worker) — opcional pero recomendado</span>
-        <input
-          type="url"
-          inputMode="url"
-          autoCapitalize="none"
-          autoCorrect="off"
-          placeholder="https://tu-worker.tu-usuario.workers.dev"
-          value={backend}
-          onChange={(e) => setBackend(e.target.value)}
-          onBlur={() => setBackendUrl(backend)}
-        />
-        <small>
-          Sin un backend, la búsqueda depende de proxies públicos que suelen
-          bloquear a CifraClub/Ultimate Guitar. Cómo crearlo: ver worker/README.md.
-        </small>
-      </label>
-
+      {health.length ? (
+        <>
+          <h3>Rutas aprendidas por sitio</h3>
+          <table className="health">
+            <tbody>
+              {health.map((h) => {
+                const [host, route] = h.key.split('|')
+                const rate = (h.ok + 1) / (h.ok + h.fail + 2)
+                return (
+                  <tr key={h.key}>
+                    <td>{host}</td>
+                    <td>{route}</td>
+                    <td className={rate >= 0.5 ? 'good' : 'bad'}>
+                      {Math.round(h.ok)}✓ {Math.round(h.fail)}✗
+                    </td>
+                    <td>{h.ms ? `${h.ms} ms` : ''}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </>
+      ) : null}
       <div className="debug-actions">
-        <button onClick={copy} type="button">{copied ? '¡Copiado!' : 'Copiar log'}</button>
-        <button onClick={() => clearDebug()} type="button">Limpiar</button>
+        <button className="btn small" onClick={copy} type="button">
+          Copiar registro
+        </button>
+        <button className="btn small" onClick={() => clearDebug()} type="button">
+          Limpiar
+        </button>
+        <button
+          className="btn small"
+          onClick={() => {
+            resetRouteHealth()
+            force((n) => n + 1)
+          }}
+          type="button"
+        >
+          Olvidar rutas
+        </button>
         <span className="debug-count">{entries.length} eventos</span>
       </div>
-
       <div className="debug-log">
         {entries.length === 0 ? (
           <p className="debug-empty">Haz una búsqueda para ver qué ocurre por debajo.</p>

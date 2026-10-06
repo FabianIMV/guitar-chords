@@ -1,56 +1,23 @@
-import { proxyFetch } from '../lib/proxy'
-import { decodeEntities, parseHTML } from '../lib/html'
-import { CH_END, CH_START, tokenizeMarked, tokenizePlainText } from '../lib/chords'
+import { fetchText } from '../lib/proxy'
+import { elementToMarked, parseHTML, parseJsonLoose, textOf } from '../lib/html'
+import { tokenizeMarked, tokenizePlainText } from '../lib/chords'
 import type { ChordSource, Line, SongDetail, SongSummary } from './types'
 
 /**
- * CIFRAS (cifras.com.br) adapter.
+ * CIFRAS (cifras.com.br) — PARKED: not used in searches.
  *
- * Search uses the site's JSON API (/api/search) which needs the
- * X-Requested-With header (added by the Worker). Song pages live at
- * /cifra/{artist}/{song} and are parsed for their <pre> chord block.
+ * Its /api/search JSON works through the Worker, but every song page sits
+ * behind a Cloudflare challenge ("Just a moment…") that neither the Worker
+ * nor Jina can pass, so results could never be opened. The adapter stays
+ * so pasted URLs still get a best-effort attempt.
  */
 
 const ORIGIN = 'https://www.cifras.com.br'
-
-// Confirmed JSON search API. Requires the X-Requested-With header, which the
-// Worker adds. We only ask for songs.
 const SEARCH = (q: string) =>
   `${ORIGIN}/api/search?q=${encodeURIComponent(q)}&only[]=songs&songs_take=15`
 
-type AnyObj = Record<string, unknown>
-
-function asArray(v: unknown): AnyObj[] {
-  return Array.isArray(v) ? (v as AnyObj[]) : []
-}
-
-/** Find the songs array in the API response, tolerating shape changes. */
-function findSongs(data: unknown): AnyObj[] {
-  const d = data as AnyObj
-  // Real shape: { songs: { hits: [ ... ] } }
-  const songs = d?.songs as AnyObj
-  const candidates = [
-    asArray(songs?.hits),
-    asArray(songs),
-    asArray((d?.data as AnyObj)?.songs),
-    asArray((d?.results as AnyObj)?.songs),
-  ]
-  const direct = candidates.find((a) => a.length)
-  if (direct) return direct
-  // Fallback: first array of objects anywhere in the response.
-  const queue: unknown[] = [data]
-  while (queue.length) {
-    const cur = queue.shift()
-    if (Array.isArray(cur)) {
-      if (cur.length && typeof cur[0] === 'object') return cur as AnyObj[]
-    } else if (cur && typeof cur === 'object') {
-      queue.push(...Object.values(cur as AnyObj))
-    }
-  }
-  return []
-}
-
-const str = (o: AnyObj, keys: string[]): string | undefined => {
+type Obj = Record<string, unknown>
+const str = (o: Obj, keys: string[]) => {
   for (const k of keys) {
     const v = o[k]
     if (typeof v === 'string' && v.trim()) return v.trim()
@@ -61,66 +28,50 @@ const str = (o: AnyObj, keys: string[]): string | undefined => {
 export const cifras: ChordSource = {
   id: 'cifras',
   label: 'CIFRAS',
+  hosts: ['cifras.com.br'],
 
-  async search(query: string): Promise<SongSummary[]> {
-    const raw = await proxyFetch(SEARCH(query))
-    let data: unknown
-    try {
-      data = JSON.parse(raw)
-    } catch {
-      return []
-    }
-
-    const out: SongSummary[] = []
-    const seen = new Set<string>()
-    for (const song of findSongs(data)) {
-      // Real CIFRAS fields are uppercase: TITULO, ARTISTA, COD_TITULO,
-      // COD_ARTISTA. Song pages live at /cifra/{artist}/{song}.
-      const songSlug = str(song, ['COD_TITULO', 'slug', 'permalink'])
-      const artistSlug = str(song, ['COD_ARTISTA', 'artist_slug'])
-      let path = str(song, ['url', 'path', 'link'])
-      if (!path && artistSlug && songSlug) path = `/cifra/${artistSlug}/${songSlug}`
-      if (!path) continue
-      const url = path.startsWith('http') ? path : ORIGIN + (path.startsWith('/') ? path : '/' + path)
-      if (seen.has(url)) continue
-      seen.add(url)
-
-      out.push({
-        id: `cifras:${url}`,
-        source: 'cifras',
-        title: decodeEntities(str(song, ['TITULO', 'name', 'title', 'song']) || ''),
-        artist: decodeEntities(str(song, ['ARTISTA', 'artist_name', 'artist']) || ''),
-        url,
-        score: 0.55,
+  async search(query, opts) {
+    const raw = await fetchText(SEARCH(query), { as: 'text', signal: opts?.signal })
+    const data = parseJsonLoose(raw) as { songs?: { hits?: Obj[] } } | null
+    const hits = data?.songs?.hits ?? []
+    return hits
+      .map((song): SongSummary | null => {
+        const songSlug = str(song, ['COD_TITULO'])
+        const artistSlug = str(song, ['COD_ARTISTA'])
+        if (!songSlug || !artistSlug) return null
+        const url = `${ORIGIN}/cifra/${artistSlug}/${songSlug}`
+        return {
+          id: `cifras:${url}`,
+          source: 'cifras',
+          title: str(song, ['TITULO']) ?? songSlug,
+          artist: str(song, ['ARTISTA']) ?? artistSlug,
+          url,
+          score: 0.5,
+          kind: 'chords',
+        }
       })
-      if (out.length >= 15) break
-    }
-    return out
+      .filter((s): s is SongSummary => !!s)
   },
 
-  async fetchSong(summary: SongSummary): Promise<SongDetail> {
-    const html = await proxyFetch(summary.url)
+  async fetchSong(summary, opts): Promise<SongDetail> {
+    const html = await fetchText(summary.url, {
+      signal: opts?.signal,
+      validate: (b) => (/<pre[\s>]/i.test(b) ? null : 'sin cifra (<pre>)'),
+    })
     const doc = parseHTML(html)
-
-    let lines: Line[] = []
     const pre = doc.querySelector('pre')
-    if (pre && /[A-G]/.test(pre.textContent || '')) {
-      const marked = pre.innerHTML
-        .replace(/<(b|strong|span)\b[^>]*>/gi, CH_START)
-        .replace(/<\/(b|strong|span)>/gi, CH_END)
-        .replace(/<br\s*\/?>(?:\r?\n)?/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-      lines = tokenizeMarked(decodeEntities(marked))
+    let lines: Line[] = []
+    if (pre) {
+      lines = tokenizeMarked(elementToMarked(pre, 'b, strong'))
       if (!lines.some((l) => l.tokens.some((t) => t.chord))) {
-        lines = tokenizePlainText(decodeEntities(pre.textContent || ''))
+        lines = tokenizePlainText(pre.textContent ?? '')
       }
-    } else {
-      const container =
-        doc.querySelector('.cifra, .cifra_cnt, #cifra, article, main') || doc.body
-      lines = tokenizePlainText(container?.textContent || '')
     }
-
-    const title = doc.querySelector('h1')?.textContent?.trim() || summary.title || 'Canción'
-    return { ...summary, title, lines }
+    return {
+      ...summary,
+      title: textOf(doc, 'h1') || summary.title,
+      lines,
+      fetchedAt: Date.now(),
+    }
   },
 }

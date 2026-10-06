@@ -1,16 +1,25 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/guitar-chords/favicon.svg" />
     <link rel="apple-touch-icon" href="/guitar-chords/icon-180.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1115" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Acordes" />
     <meta name="description" content="Busca acordes y letras de cualquier canción, sin publicidad." />
     <title>Acordes</title>
+    <script>
+      // Apply the saved theme before first paint (no flash).
+      try {
+        var t = (JSON.parse(localStorage.getItem('gc.prefs.v1') || '{}') || {}).theme || 'auto'
+        var dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

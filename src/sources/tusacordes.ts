@@ -1,88 +1,97 @@
-import { proxyFetch } from '../lib/proxy'
-import { decodeEntities, parseHTML } from '../lib/html'
-import { CH_END, CH_START, tokenizeMarked, tokenizePlainText } from '../lib/chords'
-import { logSampleLinks } from './diagnostics'
+import { fetchText } from '../lib/proxy'
+import { elementToMarked, parseHTML, textOf } from '../lib/html'
+import { tokenizeMarked, tokenizePlainText } from '../lib/chords'
 import type { ChordSource, Line, SongDetail, SongSummary } from './types'
 
 /**
- * TusAcordes adapter — best effort. The site's markup is less structured than
- * CifraClub/UG, so we use heuristics: find result links on the search page and
- * detect chord lines in the song body. Failures are swallowed by the
- * aggregator so they never break a search.
+ * TusAcordes — Spanish site; chords are written in Latin notation
+ * ("Sim", "Sol", "Re"), which the tokenizer converts to English.
+ *
+ * Search results are <a class="list-group-item" href="/tab/{slug}-{type}-{id}">
+ * with the title in <h5>, a type badge and the artist in <p><span>.
+ * Song pages hold the sheet in .tablatura-content with chords as
+ * <span class="acorde-interactivo">.
  */
 
 const ORIGIN = 'https://www.tusacordes.com'
-const SEARCH = (q: string) => `${ORIGIN}/buscar?q=${encodeURIComponent(q)}`
+const SEARCH = (q: string) => `${ORIGIN}/buscar?q=${encodeURIComponent(q.trim()).replace(/%20/g, '+')}`
+const TAB_RE = /\/tab\/[^/?#]+-(acordes|tablatura|teclado|bajo|bateria|armonica|ukulele|video_guitarra)-(\d+)\/?$/
+
+export function parseTusAcordesSearch(html: string): SongSummary[] {
+  const doc = parseHTML(html)
+  const out: SongSummary[] = []
+  const versions = new Map<string, number>()
+  let rank = 0
+  doc.querySelectorAll<HTMLAnchorElement>('a[href*="/tab/"]').forEach((a) => {
+    const href = a.getAttribute('href') ?? ''
+    const m = href.match(TAB_RE)
+    if (!m || m[1] !== 'acordes') return
+    const url = href.startsWith('http') ? href : ORIGIN + href
+    const title = textOf(a, 'h5') ?? a.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+    const artist = textOf(a, 'p span') ?? textOf(a, 'p')?.replace(/^de\s+/i, '') ?? ''
+    if (!title || out.some((s) => s.url === url)) return
+    const group = `${title.toLowerCase()}|${artist.toLowerCase()}`
+    const n = (versions.get(group) ?? 0) + 1
+    versions.set(group, n)
+    if (n > 3) return // a few versions per song is plenty
+    out.push({
+      id: `tusacordes:${url}`,
+      source: 'tusacordes',
+      title,
+      artist,
+      url,
+      score: 0.62 - (n - 1) * 0.03,
+      popularity: Math.max(0.05, 0.35 - rank++ * 0.02),
+      kind: 'chords',
+      version: `v${n}`,
+    })
+  })
+  // Only label versions when a song has more than one.
+  for (const s of out) {
+    const group = `${s.title.toLowerCase()}|${s.artist.toLowerCase()}`
+    if ((versions.get(group) ?? 1) === 1) s.version = undefined
+  }
+  return out
+}
+
+export function parseTusAcordesSong(html: string, summary: SongSummary): SongDetail {
+  const doc = parseHTML(html)
+  const box = doc.querySelector('.tablatura-content')
+  let lines: Line[] = []
+  if (box) {
+    lines = tokenizeMarked(elementToMarked(box, '.acorde-interactivo'))
+    if (!lines.some((l) => l.tokens.some((t) => t.chord))) {
+      lines = tokenizePlainText(box.textContent ?? '')
+    }
+  }
+  const h1 = doc.querySelector('h1')
+  h1?.querySelectorAll('.badge').forEach((b) => b.remove())
+  const title = h1?.textContent?.replace(/\s+/g, ' ').trim() || summary.title
+  const artist = textOf(doc, 'h2.h4') || summary.artist
+  return { ...summary, title, artist, lines, fetchedAt: Date.now() }
+}
 
 export const tusacordes: ChordSource = {
   id: 'tusacordes',
   label: 'TusAcordes',
+  hosts: ['tusacordes.com'],
 
-  async search(query: string): Promise<SongSummary[]> {
-    const html = await proxyFetch(SEARCH(query))
-    const doc = parseHTML(html)
-    const out: SongSummary[] = []
-    const seen = new Set<string>()
-
-    // Result links point to song pages; grab anchors that look like songs.
-    const anchors = Array.from(doc.querySelectorAll('a[href]'))
-    for (const a of anchors) {
-      const href = a.getAttribute('href') || ''
-      const text = a.textContent?.trim() || ''
-      if (!text || text.length < 2) continue
-      // Heuristic: song pages live under /acordes/ or similar deep paths.
-      if (!/\/(acordes|cancion|cancin|letra)/i.test(href)) continue
-      const url = href.startsWith('http') ? href : ORIGIN + (href.startsWith('/') ? href : '/' + href)
-      if (seen.has(url)) continue
-      seen.add(url)
-
-      // Titles often look like "Artist - Song"
-      const parts = text.split(/\s+[-–—]\s+/)
-      const artist = parts.length > 1 ? parts[0] : ''
-      const title = parts.length > 1 ? parts.slice(1).join(' - ') : text
-
-      out.push({
-        id: `tusacordes:${url}`,
-        source: 'tusacordes',
-        title: decodeEntities(title),
-        artist: decodeEntities(artist),
-        url,
-        score: 0.5,
-      })
-      if (out.length >= 15) break
-    }
-    if (out.length === 0) logSampleLinks('TusAcordes', doc, html)
-    return out
+  async search(query, opts) {
+    const html = await fetchText(SEARCH(query), {
+      select: '.list-group, main',
+      cacheMs: 10 * 60_000,
+      signal: opts?.signal,
+      validate: (b) => (/\/tab\/|list-group|resultados/i.test(b) ? null : 'página inesperada'),
+    })
+    return parseTusAcordesSearch(html)
   },
 
-  async fetchSong(summary: SongSummary): Promise<SongDetail> {
-    const html = await proxyFetch(summary.url)
-    const doc = parseHTML(html)
-
-    let lines: Line[] = []
-    const pre = doc.querySelector('pre')
-    if (pre && /[A-G]/.test(pre.textContent || '')) {
-      const marked = pre.innerHTML
-        .replace(/<(b|strong|span)\b[^>]*>/gi, CH_START)
-        .replace(/<\/(b|strong|span)>/gi, CH_END)
-        .replace(/<br\s*\/?>(?:\r?\n)?/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-      lines = tokenizeMarked(decodeEntities(marked))
-      // If no chords were marked, fall back to text heuristics.
-      if (!lines.some((l) => l.tokens.some((t) => t.chord))) {
-        lines = tokenizePlainText(decodeEntities(pre.textContent || ''))
-      }
-    } else {
-      // Look for a content container, else use the whole body text.
-      const container =
-        doc.querySelector('.cifra, .acordes, .chord-sheet, #cancion, article') ||
-        doc.body
-      lines = tokenizePlainText(container?.textContent || '')
-    }
-
-    const title =
-      doc.querySelector('h1')?.textContent?.trim() || summary.title || 'Canción'
-
-    return { ...summary, title, lines }
+  async fetchSong(summary, opts) {
+    const html = await fetchText(summary.url, {
+      select: '.tablatura-content, h1, h2.h4',
+      signal: opts?.signal,
+      validate: (b) => (/tablatura-content/.test(b) ? null : 'sin acordes en la página'),
+    })
+    return parseTusAcordesSong(html, summary)
   },
 }
