@@ -1,0 +1,9 @@
+({
+  "response":{"numFound":3,"start":0,"maxScore":200.0,"docs":[
+      {"t":"1","s":250.0,"m":"Los Ejemplos","a":"Los Ejemplos","d":"los-ejemplos"},
+      {"t":"2","s":200.0,"b":0,"m":"Canci&oacute;n de Prueba","a":"Los Ejemplos","i":"a/b/c/d/abcd-tb.jpg","d":"los-ejemplos","u":"cancion-de-prueba"},
+      {"t":"2","s":50.0,"b":0,"m":"Canción de Prueba (Ao Vivo)","a":"Los Ejemplos","d":"los-ejemplos","u":"cancion-de-prueba-ao-vivo"},
+      {"t":"2","s":40.0,"b":0,"m":"Otra","a":"Nadie","d":"nadie"}]
+  },
+  "highlighting":{}
+})

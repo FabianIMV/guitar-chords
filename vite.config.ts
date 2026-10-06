@@ -7,6 +7,9 @@ const base = '/guitar-chords/'
 
 export default defineConfig({
   base,
+  define: {
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+  },
   plugins: [
     react(),
     VitePWA({
@@ -18,6 +21,8 @@ export default defineConfig({
         description: 'Busca acordes y letras de cualquier canción, sin publicidad.',
         theme_color: '#0f1115',
         background_color: '#0f1115',
+        lang: 'es',
+        categories: ['music', 'entertainment'],
         display: 'standalone',
         orientation: 'portrait',
         scope: base,
@@ -36,7 +41,19 @@ export default defineConfig({
         // cached service worker.
         skipWaiting: true,
         clientsClaim: true,
-        cleanupOutdatedCaches: true
+        cleanupOutdatedCaches: true,
+        // Artist pictures in result lists: cache them so lists look right offline.
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/akamai\.sscdn\.co\/.*\.(?:jpg|jpeg|png|webp)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'artist-images',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          }
+        ]
       }
     })
   ]

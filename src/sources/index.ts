@@ -1,106 +1,180 @@
-import type { ChordSource, SongDetail, SongSummary } from './types'
+import type { ChordSource, RequestOptions, SongDetail, SongSummary, SourceId } from './types'
 import { cifraclub } from './cifraclub'
 import { ultimateGuitar } from './ultimateGuitar'
 import { tusacordes } from './tusacordes'
 import { lacuerda } from './lacuerda'
 import { cifras } from './cifras'
 import { logDebug } from '../lib/debug'
+import { getPrefs } from '../lib/settings'
+import { prettifySlug } from '../lib/html'
+import { isAbort } from '../lib/proxy'
 
-// All adapters are registered so pasted URLs and re-enabling are trivial.
-export const SOURCES: Record<string, ChordSource> = {
+/** Every adapter (pasted URLs work for all of them). */
+export const SOURCES: Record<SourceId, ChordSource> = {
   cifraclub,
   'ultimate-guitar': ultimateGuitar,
   lacuerda,
-  cifras,
   tusacordes,
+  cifras,
 }
 
 /**
- * Sources actually queried on every search.
- *
- * CifraClub (huge catalogue) + CIFRAS (/api/search JSON). Parked sources,
- * kept in SOURCES so pasted URLs still work: Ultimate Guitar (Cloudflare bot
- * wall), LaCuerda (results are javascript: links / JS-driven), TusAcordes
- * (flaky / unconfirmed parser).
+ * Sources that can be searched. CIFRAS is parked (its song pages are behind
+ * a Cloudflare challenge, so its results could never be opened).
  */
-const SEARCH_ORDER: ChordSource[] = [cifraclub, cifras]
+export const SEARCHABLE: SourceId[] = ['cifraclub', 'ultimate-guitar', 'lacuerda', 'tusacordes']
 
-/** Hard cap so one slow source can never hang the whole search. */
-const SEARCH_TIMEOUT_MS = 12000
+export function sourceLabel(id: SourceId): string {
+  return SOURCES[id]?.label ?? id
+}
+
+/** Hard cap so one slow source can never hold the search. */
+const SEARCH_TIMEOUT_MS = 16000
+
+export interface SourceStatus {
+  id: SourceId
+  label: string
+  state: 'loading' | 'done' | 'error'
+  count: number
+  error?: string
+  ms?: number
+}
+
+export interface SearchProgress {
+  results: SongSummary[]
+  statuses: SourceStatus[]
+  done: boolean
+}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`timeout ${ms}ms`)), ms)
-    ),
-  ])
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`sin respuesta en ${ms / 1000}s`)), ms)
+    p.then(
+      (v) => {
+        clearTimeout(t)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(t)
+        reject(e)
+      }
+    )
+  })
 }
 
 /**
- * Search every active source in parallel and merge results, best-rated first.
- * A failing or slow source contributes nothing rather than breaking the search.
+ * Search the enabled sources in parallel. `onProgress` fires every time a
+ * source answers, so the UI can show results as they arrive instead of
+ * waiting for the slowest site.
  */
-export async function searchAll(query: string): Promise<SongSummary[]> {
+export async function searchAll(
+  query: string,
+  opts: RequestOptions & { onProgress?: (p: SearchProgress) => void } = {}
+): Promise<SearchProgress> {
   const q = query.trim()
-  if (!q) return []
-
-  logDebug({ kind: 'info', label: `Buscando "${q}"…` })
-  const settled = await Promise.allSettled(
-    SEARCH_ORDER.map((s) => withTimeout(s.search(q), SEARCH_TIMEOUT_MS))
-  )
-  const all: SongSummary[] = []
-  settled.forEach((r, i) => {
-    const src = SEARCH_ORDER[i]
-    if (r.status === 'fulfilled') {
-      all.push(...r.value)
-      logDebug({
-        kind: 'source',
-        ok: r.value.length > 0,
-        label: `${src.label}: ${r.value.length} resultados`,
-      })
-    } else {
-      logDebug({
-        kind: 'source',
-        ok: false,
-        label: `${src.label}: error`,
-        detail: String((r.reason as Error)?.message || r.reason),
-      })
-    }
+  const enabled = getPrefs().sources.filter((id) => SEARCHABLE.includes(id))
+  const statuses: SourceStatus[] = enabled.map((id) => ({
+    id,
+    label: sourceLabel(id),
+    state: 'loading',
+    count: 0,
+  }))
+  const results: SongSummary[] = []
+  const snapshot = (done: boolean): SearchProgress => ({
+    results: results.slice(),
+    statuses: statuses.map((s) => ({ ...s })),
+    done,
   })
+  if (!q || enabled.length === 0) return snapshot(true)
 
-  // Sort by score (desc), then by votes as a tie-breaker.
-  all.sort((a, b) => b.score - a.score || (b.votes ?? 0) - (a.votes ?? 0))
-  return all
+  logDebug({ kind: 'info', label: `Buscando "${q}" en ${enabled.length} fuentes…` })
+  opts.onProgress?.(snapshot(false))
+
+  await Promise.all(
+    enabled.map(async (id, i) => {
+      const start = performance.now()
+      try {
+        const found = await withTimeout(SOURCES[id].search(q, { signal: opts.signal }), SEARCH_TIMEOUT_MS)
+        results.push(...found)
+        statuses[i] = { ...statuses[i], state: 'done', count: found.length }
+        logDebug({ kind: 'source', ok: found.length > 0, label: `${sourceLabel(id)}: ${found.length} resultados` })
+      } catch (e) {
+        if (isAbort(e)) throw e
+        const msg = String((e as Error)?.message || e)
+        statuses[i] = { ...statuses[i], state: 'error', error: msg }
+        logDebug({ kind: 'source', ok: false, label: `${sourceLabel(id)}: error`, detail: msg })
+      }
+      statuses[i].ms = Math.round(performance.now() - start)
+      if (!opts.signal?.aborted) opts.onProgress?.(snapshot(false))
+    })
+  )
+  const final = snapshot(true)
+  if (!opts.signal?.aborted) opts.onProgress?.(final)
+  return final
 }
 
-export async function fetchSong(summary: SongSummary): Promise<SongDetail> {
+/* ---- Song fetching (with background prefetch) ---- */
+
+const prefetched = new Map<string, Promise<SongDetail>>()
+
+export function fetchSong(summary: SongSummary, opts: RequestOptions = {}): Promise<SongDetail> {
+  const pre = prefetched.get(summary.id)
+  if (pre) {
+    prefetched.delete(summary.id)
+    return pre.catch(() => fetchSong(summary, opts))
+  }
   const source = SOURCES[summary.source]
-  if (!source) throw new Error(`Fuente desconocida: ${summary.source}`)
-  return source.fetchSong(summary)
+  if (!source) return Promise.reject(new Error(`Fuente desconocida: ${summary.source}`))
+  return source.fetchSong(summary, opts)
+}
+
+/** Start loading a song we expect the user to open (top search result). */
+export function prefetchSong(summary: SongSummary) {
+  if (prefetched.has(summary.id)) return
+  const source = SOURCES[summary.source]
+  if (!source) return
+  const p = source.fetchSong(summary)
+  p.catch(() => prefetched.delete(summary.id))
+  prefetched.set(summary.id, p)
+  if (prefetched.size > 4) prefetched.delete(prefetched.keys().next().value as string)
+}
+
+/* ---- Pasted URLs ---- */
+
+function sourceForHost(host: string): SourceId | null {
+  const h = host.replace(/^www\./, '')
+  for (const id of Object.keys(SOURCES) as SourceId[]) {
+    if (SOURCES[id].hosts.some((x) => h === x || h.endsWith('.' + x))) return id
+  }
+  return null
 }
 
 /** Detect a pasted song URL and turn it into a fetchable summary. */
-export function summaryFromUrl(url: string): SongSummary | null {
+export function summaryFromUrl(input: string): SongSummary | null {
+  const text = input.trim()
+  if (!/^https?:\/\//i.test(text)) return null
+  let u: URL
   try {
-    const u = new URL(url.trim())
-    const host = u.hostname.replace(/^www\./, '')
-    let source: SongSummary['source']
-    if (host.includes('cifraclub')) source = 'cifraclub'
-    else if (host.includes('ultimate-guitar')) source = 'ultimate-guitar'
-    else if (host.includes('lacuerda')) source = 'lacuerda'
-    else if (host.includes('cifras.com')) source = 'cifras'
-    else if (host.includes('tusacordes')) source = 'tusacordes'
-    else return null
-    return {
-      id: `${source}:${u.href}`,
-      source,
-      title: decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || 'Canción').replace(/[-_]/g, ' '),
-      artist: '',
-      url: u.href,
-      score: 1,
-    }
+    u = new URL(text)
   } catch {
     return null
+  }
+  const source = sourceForHost(u.hostname)
+  if (!source) return null
+  const parts = u.pathname.split('/').filter(Boolean)
+  let title = parts[parts.length - 1] ?? 'Canción'
+  let artist = parts.length >= 2 ? parts[parts.length - 2] : ''
+  title = title
+    .replace(/\.s?html?$/, '')
+    .replace(/-(chords|tabs?|acordes)-\d+$/, '')
+    .replace(/-\d+$/, '')
+  if (artist === 'tab') artist = ''
+  return {
+    id: `${source === 'ultimate-guitar' ? 'ug' : source}:${u.href}`,
+    source,
+    title: prettifySlug(title) || 'Canción',
+    artist: prettifySlug(artist),
+    url: u.href,
+    score: 1,
   }
 }

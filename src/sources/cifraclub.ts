@@ -1,157 +1,168 @@
-import { proxyFetch } from '../lib/proxy'
-import { decodeEntities, parseHTML } from '../lib/html'
-import { CH_END, CH_START, tokenizeMarked, tokenizePlainText } from '../lib/chords'
+import { fetchText } from '../lib/proxy'
+import { decodeEntities, elementToMarked, parseHTML, parseJsonLoose, prettifySlug, textOf } from '../lib/html'
+import { tokenizeMarked, tokenizePlainText } from '../lib/chords'
 import type { ChordSource, Line, SongDetail, SongSummary } from './types'
 
+/**
+ * CifraClub — the biggest catalogue (Brazilian, with lots of Spanish and
+ * English songs).
+ *
+ * Search: the SOLR autocomplete endpoint the site's own search box uses
+ * (JSON, works through the Worker). Docs look like
+ *   { t:"2", s:183.1, m:"De Música Ligera", a:"Soda Stereo",
+ *     d:"soda-stereo", u:"de-musica-ligera", i:"5/5/b/8/…-tb.jpg" }
+ * where t is the type (2 = song, 1 = artist), s the relevance score and i
+ * the artist picture.
+ *
+ * Song pages sit behind Akamai, which rejects datacenter IPs (including
+ * Cloudflare Workers), so they usually come through Jina. Since late 2025
+ * the site is a Next.js app: the sheet is still a <pre> with <b> chords,
+ * and key/capo/tuning live in "bento cards" (#key, #capo, #tuning).
+ */
+
 const BASE = 'https://www.cifraclub.com.br'
+const SEARCH = (q: string) => `https://solr.sscdn.co/cc/h2/?type=&hl=true&q=${encodeURIComponent(q)}`
+const THUMB = (i: string) => `https://akamai.sscdn.co/uploadfile/letras/fotos/${i}`
 
-/**
- * CifraClub uses a SOLR autocomplete endpoint for search (the same one the
- * site's own search box hits). It returns JSON with a `response.docs` array.
- * Field names are short codes; we read them defensively.
- */
-const SEARCH = (q: string) =>
-  `https://solr.sscdn.co/cc/h2/?type=&hl=true&q=${encodeURIComponent(q)}`
+/** Only what we parse — keeps Jina's answer ~30 KB instead of ~500 KB. */
+const SONG_SELECTOR = 'pre, h1, h2:not(.u-srOnly), #key, #capo, #tuning, #cifra_tom'
 
-type AnyDoc = Record<string, unknown>
+type Doc = Record<string, unknown>
 
-/** Loosely parse JSON that may be wrapped in a JSONP callback or have junk. */
-function parseJsonLoose(raw: string): unknown {
-  try {
-    return JSON.parse(raw)
-  } catch {
-    /* try to unwrap */
-  }
-  const start = raw.search(/[{[]/)
-  const end = Math.max(raw.lastIndexOf('}'), raw.lastIndexOf(']'))
-  if (start >= 0 && end > start) {
-    try {
-      return JSON.parse(raw.slice(start, end + 1))
-    } catch {
-      /* give up */
-    }
-  }
-  return null
+const str = (doc: Doc, key: string): string | undefined => {
+  const v = doc[key]
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined
 }
 
-/** Find the most likely array of result docs anywhere in the parsed JSON. */
-function findDocsArray(data: unknown): AnyDoc[] {
-  // Common shapes first.
-  const d = data as AnyDoc
-  const known = [
-    (d?.response as AnyDoc)?.docs,
-    d?.docs,
-    d?.results,
-    Array.isArray(data) ? data : undefined,
-  ].find((x) => Array.isArray(x) && x.length) as AnyDoc[] | undefined
-  if (known) return known
-
-  // Otherwise, breadth-first search for an array of objects that look like docs.
-  const queue: unknown[] = [data]
-  while (queue.length) {
-    const cur = queue.shift()
-    if (Array.isArray(cur)) {
-      if (cur.length && typeof cur[0] === 'object' && cur[0]) return cur as AnyDoc[]
-      continue
-    }
-    if (cur && typeof cur === 'object') {
-      queue.push(...Object.values(cur as AnyDoc))
-    }
+export function parseCifraClubSearch(raw: string): SongSummary[] {
+  const data = parseJsonLoose(raw) as { response?: { docs?: Doc[] } } | null
+  const docs = data?.response?.docs
+  if (!Array.isArray(docs)) return []
+  const songs = docs.filter((d) => String(d.t) === '2')
+  const maxS = Math.max(1, ...songs.map((d) => Number(d.s) || 0))
+  const out: SongSummary[] = []
+  const seen = new Set<string>()
+  for (const doc of songs) {
+    const artistSlug = str(doc, 'd')
+    const songSlug = str(doc, 'u')
+    if (!artistSlug || !songSlug) continue
+    const url = `${BASE}/${artistSlug}/${songSlug}/`
+    if (seen.has(url)) continue
+    seen.add(url)
+    const img = str(doc, 'i')
+    out.push({
+      id: `cifraclub:${url}`,
+      source: 'cifraclub',
+      title: decodeEntities(str(doc, 'm') || prettifySlug(songSlug)),
+      artist: decodeEntities(str(doc, 'a') || prettifySlug(artistSlug)),
+      url,
+      // CifraClub's main version is curated and usually excellent.
+      score: 0.86,
+      popularity: Math.max(0.05, (Number(doc.s) || 0) / maxS),
+      kind: 'chords',
+      thumb: img ? THUMB(img) : undefined,
+    })
   }
-  return []
+  return out
 }
 
-const pick = (doc: AnyDoc, keys: string[]): string | undefined => {
-  for (const k of keys) {
-    const v = doc[k]
-    if (typeof v === 'string' && v.trim()) return v.trim()
-  }
-  return undefined
+/** The value shown in one of the song's info cards (#key, #capo, …). */
+function cardValue(doc: Document, id: string): string | undefined {
+  const card = doc.getElementById(id)
+  if (!card) return undefined
+  const texts = Array.from(card.querySelectorAll('p, span'))
+    .filter((el) => el.children.length === 0)
+    .map((el) => el.textContent?.trim() ?? '')
+    .filter(Boolean)
+  // First text is the label ("Tom", "Capotraste"), the next one the value.
+  return texts[1] ?? undefined
 }
 
-/**
- * Real CifraClub solr doc shape (confirmed from the live response):
- *   { t:"2", m:"Something", a:"The Beatles", d:"the-beatles", u:"something" }
- * where `t` is the TYPE ("2"=song, "1"=artist), `m` is the title, `a` the
- * artist, and the URL is built from `d` (artist slug) + `u` (song slug).
- */
-const prettify = (slug: string) => slug.replace(/[-_]+/g, ' ').trim()
+export function parseCapo(text: string | undefined): number | undefined {
+  if (!text) return undefined
+  if (/sem capo|sin capo|no capo|sem capotraste|sin cejilla/i.test(text)) return 0
+  const m = text.match(/(\d{1,2})/)
+  return m ? Number(m[1]) : undefined
+}
+
+const TUNING_ES: Record<string, string | null> = {
+  padrão: null,
+  standard: null,
+  'meio tom abaixo': 'Medio tono abajo',
+  'um tom abaixo': 'Un tono abajo',
+  'drop d': 'Drop D',
+}
+
+export function parseCifraClubSong(html: string, summary: SongSummary): SongDetail {
+  const doc = parseHTML(html)
+  const pre = doc.querySelector('pre')
+  let lines: Line[]
+  if (pre) {
+    lines = tokenizeMarked(elementToMarked(pre, 'b'))
+  } else {
+    lines = tokenizePlainText(doc.body?.textContent ?? '')
+  }
+
+  const h1 = doc.querySelector('h1')
+  const title =
+    textOf(doc, 'h1.t1') ||
+    h1?.textContent?.replace(/\s+/g, ' ').trim() ||
+    summary.title ||
+    'Canción'
+  const artist =
+    textOf(doc, 'h2.t3 a') ||
+    Array.from(doc.querySelectorAll('h2'))
+      .map((h) => h.textContent?.trim() ?? '')
+      .find((t) => t && !/menu|menú/i.test(t)) ||
+    summary.artist
+
+  const key = cardValue(doc, 'key') || textOf(doc, '#cifra_tom a') || textOf(doc, '#cifra_tom')
+  const capoText =
+    cardValue(doc, 'capo') ||
+    (doc.body?.textContent ?? '').match(/Capotraste[^0-9]{0,20}?(\d+)\s*ª?\s*casa/i)?.[0]
+  const tuningRaw = cardValue(doc, 'tuning')
+  const tuningKey = tuningRaw?.toLowerCase()
+  const tuning =
+    tuningKey && tuningKey in TUNING_ES ? TUNING_ES[tuningKey] ?? undefined : tuningRaw
+
+  return {
+    ...summary,
+    title,
+    artist,
+    lines,
+    key: key && key.length <= 6 ? key : summary.key,
+    capoFret: parseCapo(capoText),
+    tuning,
+    fetchedAt: Date.now(),
+  }
+}
 
 export const cifraclub: ChordSource = {
   id: 'cifraclub',
   label: 'CifraClub',
+  hosts: ['cifraclub.com.br', 'cifraclub.com', 'm.cifraclub.com.br'],
 
-  async search(query: string): Promise<SongSummary[]> {
-    const raw = await proxyFetch(SEARCH(query))
-    const data = parseJsonLoose(raw) as AnyDoc | null
-    if (!data) return []
-
-    const docs =
-      ((data.response as AnyDoc)?.docs as AnyDoc[] | undefined) ?? findDocsArray(data)
-    const out: SongSummary[] = []
-    for (const doc of docs) {
-      // Only song docs (t==="2"); t==="1" are artists with no song slug.
-      if (String(doc.t) !== '2') continue
-      const artistSlug = pick(doc, ['d'])
-      const songSlug = pick(doc, ['u'])
-      if (!artistSlug || !songSlug) continue
-      const url = `${BASE}/${artistSlug}/${songSlug}/`
-      out.push({
-        id: `cifraclub:${url}`,
-        source: 'cifraclub',
-        title: decodeEntities(pick(doc, ['m', 'title']) || prettify(songSlug)),
-        artist: decodeEntities(pick(doc, ['a']) || prettify(artistSlug)),
-        url,
-        // CifraClub doesn't expose ratings; give a solid baseline score.
-        score: 0.7,
-      })
-    }
-    // De-dupe by url
-    const seen = new Set<string>()
-    return out.filter((s) => (seen.has(s.url) ? false : (seen.add(s.url), true)))
+  async search(query, opts) {
+    const raw = await fetchText(SEARCH(query), {
+      as: 'text',
+      cacheMs: 10 * 60_000,
+      signal: opts?.signal,
+      validate: (b) => (/"docs"\s*:/.test(b) ? null : 'respuesta sin "docs"'),
+    })
+    return parseCifraClubSearch(raw)
   },
 
-  async fetchSong(summary: SongSummary): Promise<SongDetail> {
-    const html = await proxyFetch(summary.url)
-    const doc = parseHTML(html)
-
-    const pre = doc.querySelector('pre')
-    let lines: Line[]
-    if (pre) {
-      // Chords are wrapped in <b> tags inside the <pre>. Convert to sentinels,
-      // strip remaining tags, decode entities, then tokenize.
-      const marked = pre.innerHTML
-        .replace(/<b\b[^>]*>/gi, CH_START)
-        .replace(/<\/b>/gi, CH_END)
-        .replace(/<br\s*\/?>(?:\r?\n)?/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-      lines = tokenizeMarked(decodeEntities(marked))
-    } else {
-      lines = tokenizePlainText(doc.body?.textContent ?? '')
-    }
-
-    const meta = (sel: string) =>
-      doc.querySelector(sel)?.textContent?.trim() || undefined
-
-    const title =
-      meta('h1.t1') ||
-      summary.title ||
-      doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-      'Canción'
-    const artist = meta('h2.t3 a') || meta('.t3') || summary.artist
-
-    // Capo / key live in the song's toolbar, labelled in Portuguese.
-    const bodyText = doc.body?.textContent || ''
-    const capoMatch = bodyText.match(/Capotraste[^0-9]*?(\d+)\s*ª?\s*casa/i)
-    const tomMatch = doc.querySelector('#cifra_tom')?.textContent?.trim()
-
-    return {
-      ...summary,
-      title,
-      artist,
-      lines,
-      capo: capoMatch ? `${capoMatch[1]}ª casa` : undefined,
-      key: tomMatch || undefined,
-    }
+  async fetchSong(summary, opts) {
+    const html = await fetchText(summary.url, {
+      select: SONG_SELECTOR,
+      signal: opts?.signal,
+      validate: (b) => {
+        if (/NEXT_HTTP_ERROR_FALLBACK;404|Alguém pegou todas as nossas palhetas/.test(b)) {
+          return 'la canción no existe (404)'
+        }
+        return /<pre[\s>]/i.test(b) ? null : 'sin cifra (<pre>)'
+      },
+    })
+    return parseCifraClubSong(html, summary)
   },
 }
