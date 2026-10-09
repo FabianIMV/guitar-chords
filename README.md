@@ -2,11 +2,17 @@
 
 Buscador rápido de **acordes y letras** de canciones, **sin publicidad**.
 Busca en **CifraClub, Ultimate Guitar, LaCuerda y TusAcordes** a la vez,
-agrupa las versiones de cada canción y abre la mejor valorada, con la letra
-y los acordes alineados, diagramas, cambio de tono y cejilla.
+agrupa versiones y abre la mejor valorada con letra, acordes alineados,
+diagramas, cambio de tono y cejilla.
 
-Es una **PWA** pensada para el iPhone: ábrela en Safari y añádela a la
-pantalla de inicio para usarla a pantalla completa, como una app nativa.
+Es una **PWA** pensada para iPhone: ábrela en Safari y añádela a la pantalla
+de inicio para usarla a pantalla completa, como app nativa.
+
+## 🚀 Acceso rápido
+
+- **Abrir la app:** https://fabianimv.github.io/guitar-chords/
+- **Repositorio:** https://github.com/FabianIMV/guitar-chords
+- **Guía del backend (Worker):** https://github.com/FabianIMV/guitar-chords/tree/main/worker
 
 ## Funciones
 
@@ -111,7 +117,9 @@ Detrás de un proxy HTTPS, Node necesita `NODE_USE_ENV_PROXY=1` para
 1. En GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 2. Haz push a `main`. El workflow `deploy.yml` corre las pruebas, construye y
    publica. En los Pull Requests, `ci.yml` corre pruebas + build.
-3. La app queda en `https://<usuario>.github.io/guitar-chords/`.
+3. La app queda publicada en:
+   - https://fabianimv.github.io/guitar-chords/
+   - (formato general) `https://<usuario>.github.io/guitar-chords/`
 
 > Si cambias el nombre del repositorio, actualiza `base` en `vite.config.ts`.
 
